@@ -80,6 +80,7 @@ export function ChatLayout() {
     }
   };
 
+
   return (
     <div className="flex h-screen">
       <ConversationsSidebar

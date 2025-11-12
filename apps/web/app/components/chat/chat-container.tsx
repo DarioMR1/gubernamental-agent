@@ -16,8 +16,8 @@ export function ChatContainer({
 }: ChatContainerProps) {
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isWaitingForFirstToken, setIsWaitingForFirstToken] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const previousConversationIdRef = useRef<string | null>(null);
 
@@ -27,7 +27,7 @@ export function ChatContainer({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]);
+  }, [messages, isWaitingForFirstToken]);
 
   // Load messages when active conversation changes
   useEffect(() => {
@@ -92,63 +92,180 @@ export function ChatContainer({
     
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    setIsTyping(true);
+    setIsWaitingForFirstToken(true);
 
     try {
       // Ensure we have a conversation
       const { id: conversationId, isNew } = await ensureConversation();
 
-      // Send message to API
-      const response = await apiClient.sendMessage(conversationId, messageContent);
+      // Use streaming mode by default
+      let assistantResponseContent = '';
+      let assistantMessage: UIMessage | null = null;
 
-      // Add assistant response
-      const assistantMessage: UIMessage = {
-        id: Date.now() + 1,
-        content: response.response,
-        sender: 'assistant',
-        timestamp: new Date(),
-        conversationId: response.conversation_id
-      };
-      
-      // Update user message to include conversation ID and add assistant response
-      setMessages(prev => [
-        ...prev.map(msg => 
-          msg.id === userMessage.id 
-            ? { ...msg, conversationId: response.conversation_id }
-            : msg
-        ),
-        assistantMessage
-      ]);
+      await apiClient.streamMessage(
+        conversationId,
+        messageContent,
+        (event: any) => {
+          // Handle first token - replace typing indicator with actual message
+          if (event.event === 'reasoning_token' && event.data?.content) {
+            if (assistantMessage === null) {
+              // First token received - hide typing indicator and create actual message
+              setIsWaitingForFirstToken(false);
+              
+              assistantMessage = {
+                id: Date.now() + 1,
+                content: event.data.content,
+                sender: 'assistant',
+                timestamp: new Date(),
+                conversationId: conversationId
+              };
+              
+              assistantResponseContent = event.data.content;
+              
+              setMessages(prev => [
+                ...prev.map(msg => 
+                  msg.id === userMessage.id 
+                    ? { ...msg, conversationId: conversationId }
+                    : msg
+                ),
+                assistantMessage
+              ]);
+            } else {
+              // Subsequent tokens - update existing message
+              assistantResponseContent += event.data?.content || '';
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === assistantMessage!.id 
+                    ? { ...msg, content: assistantResponseContent }
+                    : msg
+                )
+              );
+            }
+          } else if (event.event === 'final_response') {
+            // Ensure we capture the final response if streaming tokens weren't complete
+            const finalContent = event.data?.response || assistantResponseContent;
+            if (finalContent && assistantMessage) {
+              assistantResponseContent = finalContent;
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === assistantMessage!.id 
+                    ? { ...msg, content: assistantResponseContent }
+                    : msg
+                )
+              );
+            } else if (finalContent && !assistantMessage) {
+              // No tokens came through, but we have a final response
+              setIsWaitingForFirstToken(false);
+              assistantMessage = {
+                id: Date.now() + 1,
+                content: finalContent,
+                sender: 'assistant',
+                timestamp: new Date(),
+                conversationId: conversationId
+              };
+              
+              setMessages(prev => [
+                ...prev.map(msg => 
+                  msg.id === userMessage.id 
+                    ? { ...msg, conversationId: conversationId }
+                    : msg
+                ),
+                assistantMessage
+              ]);
+            }
+          } else if (event.event === 'error') {
+            // Handle streaming errors
+            setIsWaitingForFirstToken(false);
+            const errorMsg = event.data?.message || 'Error during streaming';
+            console.error('Streaming error:', errorMsg);
+            
+            if (assistantMessage) {
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === assistantMessage!.id 
+                    ? { ...msg, content: `Error: ${errorMsg}` }
+                    : msg
+                )
+              );
+            } else {
+              const errorMessage: UIMessage = {
+                id: Date.now() + 1,
+                content: `Error: ${errorMsg}`,
+                sender: 'assistant',
+                timestamp: new Date(),
+                conversationId: conversationId
+              };
+              
+              setMessages(prev => [
+                ...prev.map(msg => 
+                  msg.id === userMessage.id 
+                    ? { ...msg, conversationId: conversationId }
+                    : msg
+                ),
+                errorMessage
+              ]);
+            }
+          } else if (event.event === 'debug_end') {
+            // Ensure we have some content when debugging ends
+            setIsWaitingForFirstToken(false);
+            if (!assistantResponseContent.trim() && !assistantMessage) {
+              assistantMessage = {
+                id: Date.now() + 1,
+                content: 'No response content captured during streaming.',
+                sender: 'assistant',
+                timestamp: new Date(),
+                conversationId: conversationId
+              };
+              
+              setMessages(prev => [
+                ...prev.map(msg => 
+                  msg.id === userMessage.id 
+                    ? { ...msg, conversationId: conversationId }
+                    : msg
+                ),
+                assistantMessage
+              ]);
+            }
+          }
+        },
+        (error: Error) => {
+          console.error('Streaming error:', error);
+          setIsWaitingForFirstToken(false);
+          const errorMessage: UIMessage = {
+            id: Date.now() + 2,
+            content: `Error: ${error.message}`,
+            sender: 'assistant',
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        },
+        () => {
+          // Streaming complete
+          setIsWaitingForFirstToken(false);
+        }
+      );
       
       // Handle conversation updates
       if (isNew) {
         // New conversation created
         const conversation: Conversation = {
           id: conversationId,
-          title: response.title_updated ? response.new_title || null : null,
+          title: null, // Will be updated later if needed
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
         onConversationCreated(conversation);
       } else if (activeConversation) {
-        // Existing conversation - always update timestamp, conditionally update title
+        // Existing conversation - always update timestamp
         const updatedConversation: Conversation = {
           ...activeConversation,
-          title: response.title_updated ? response.new_title || activeConversation.title : activeConversation.title,
           updated_at: new Date().toISOString()
         };
         onConversationUpdated(updatedConversation);
       }
-      
-      // Log title changes for debugging (remove in production)
-      if (response.title_updated && response.new_title) {
-        console.log(`🏷️ Título actualizado: "${response.new_title}"`);
-      }
-      
-      setIsTyping(false);
 
     } catch (error) {
-      setIsTyping(false);
+      setIsWaitingForFirstToken(false);
       const errorMessage: UIMessage = {
         id: Date.now() + 2,
         content: `Error: ${error instanceof Error ? error.message : 'No se pudo enviar el mensaje'}`,
@@ -186,16 +303,15 @@ export function ChatContainer({
         <>
           <ChatMessageList 
             messages={messages} 
-            isTyping={isTyping}
             messagesEndRef={messagesEndRef}
             welcomeTitle={getWelcomeTitle()}
             welcomeMessage={getWelcomeMessage()}
+            isWaitingForFirstToken={isWaitingForFirstToken}
           />
           <ChatInput 
             value={input}
             onChange={setInput}
             onSend={handleSendMessage}
-            disabled={isTyping}
           />
         </>
       )}

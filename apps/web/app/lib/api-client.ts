@@ -75,6 +75,7 @@ export interface ValidateCurpRequest {
   curp: string;
 }
 
+
 class ApiClient {
   private baseUrl: string;
   private headers: Record<string, string>;
@@ -183,6 +184,68 @@ class ApiClient {
     return this.request<{ message: string }>(`/api/v1/tramites/sessions/${sessionId}`, {
       method: 'DELETE',
     });
+  }
+
+  // Streaming endpoint (now default for all messages)
+  async streamMessage(
+    conversationId: string, 
+    message: string, 
+    onEvent: (event: any) => void,
+    onError?: (error: Error) => void,
+    onComplete?: () => void
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/v1/chat/conversations/${conversationId}/stream`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({ message } as ChatRequest),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('No response body for streaming');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonData = line.substring(6);
+                if (jsonData.trim()) {
+                  const event = JSON.parse(jsonData);
+                  onEvent(event);
+                }
+              } catch (e) {
+                console.warn('Failed to parse SSE data:', line, e);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      onComplete?.();
+    } catch (error) {
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      onError?.(errorObj);
+    }
   }
 
   // Format message for UI

@@ -5,18 +5,18 @@ import { type UIMessage } from "~/lib/api-client";
 
 interface ChatMessageListProps {
   messages: UIMessage[];
-  isTyping: boolean;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   welcomeTitle?: string;
   welcomeMessage?: string;
+  isWaitingForFirstToken?: boolean;
 }
 
 export function ChatMessageList({ 
   messages, 
-  isTyping, 
   messagesEndRef, 
   welcomeTitle = "Chat Assistant",
-  welcomeMessage = "¿En qué puedo ayudarte hoy?"
+  welcomeMessage = "¿En qué puedo ayudarte hoy?",
+  isWaitingForFirstToken = false
 }: ChatMessageListProps) {
   return (
     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
@@ -35,7 +35,7 @@ export function ChatMessageList({
             <ChatMessage key={message.id} message={message} />
           ))
         )}
-        {isTyping && <TypingIndicator />}
+        {isWaitingForFirstToken && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
     </div>
