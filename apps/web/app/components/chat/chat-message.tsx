@@ -1,5 +1,6 @@
 import { cn } from "~/lib/utils";
 import { type UIMessage } from "~/lib/api-client";
+import { formatAssistantMessage, formatUserMessage } from "~/lib/markdown";
 
 interface ChatMessageProps {
   message: UIMessage;
@@ -15,13 +16,16 @@ export function ChatMessage({ message }: ChatMessageProps) {
     )}>
       <div
         className={cn(
-          "max-w-xs lg:max-w-md px-4 py-2 rounded-2xl",
+          "px-5 py-4 rounded-2xl shadow-lg",
           isUser
-            ? "bg-sky-600 text-white"
-            : "backdrop-blur-md bg-white/60 border border-white/50 text-sky-700"
+            ? "max-w-xs lg:max-w-md bg-sky-600 text-white"
+            : "max-w-lg lg:max-w-2xl backdrop-blur-md bg-white/80 border border-white/50 text-sky-700"
         )}
       >
-        {message.content}
+        {isUser 
+          ? formatUserMessage(message.content)
+          : formatAssistantMessage(message.content)
+        }
       </div>
     </div>
   );
