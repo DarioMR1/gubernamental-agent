@@ -83,12 +83,16 @@ def manage_conversation_state(
     }
     
     print(f"🗂️ TOOL DEBUG: Getting database session...")
-    db: Session = next(get_database())
+    
+    # Get database session using proper generator pattern
+    db_generator = get_database()
+    db: Session = next(db_generator)
     print(f"🗂️ TOOL DEBUG: Database session acquired successfully")
     
     try:
         if action == "create":
             # Create new tramite session
+            data = data or {}  # Handle None data
             tramite_type = data.get("tramite_type", TramiteType.SAT_RFC_INSCRIPCION_PF.value)
             
             # Check if session already exists
@@ -138,6 +142,7 @@ def manage_conversation_state(
             
         elif action == "update_phase":
             # Update conversation phase
+            data = data or {}  # Handle None data
             new_phase = data.get("phase")
             
             session = db.query(TramiteSession).filter(
@@ -150,7 +155,7 @@ def manage_conversation_state(
                 
             old_phase = session.current_phase
             session.current_phase = new_phase
-            session.updated_at = datetime.utcnow()
+            session.updated_at = datetime.now()
             
             db.commit()
             
@@ -160,9 +165,37 @@ def manage_conversation_state(
                 "current_phase": new_phase,
                 "updated_at": datetime.now().isoformat()
             }
+            
+        elif action == "update_step":
+            # Update current RFC flow step (new action for step tracking)
+            data = data or {}  # Handle None data
+            new_step = data.get("step")
+            
+            session = db.query(TramiteSession).filter(
+                TramiteSession.id == session_id
+            ).first()
+            
+            if not session:
+                result["errors"].append(f"Session {session_id} not found")
+                return result
+                
+            # Store current step in current_phase field with "STEP_" prefix
+            old_step = session.current_phase
+            session.current_phase = f"STEP_{new_step}"
+            session.updated_at = datetime.now()
+            
+            db.commit()
+            
+            result["success"] = True
+            result["data"] = {
+                "previous_step": old_step,
+                "current_step": new_step,
+                "updated_at": datetime.now().isoformat()
+            }
                 
         elif action == "update_profile":
             # Update user profile
+            data = data or {}  # Handle None data
             profile_updates = data.get("profile_data", {})
             
             # COMPATIBILITY: Handle direct data format from agent
@@ -176,8 +209,37 @@ def manage_conversation_state(
             ).first()
             
             if not session:
-                result["errors"].append(f"Session {session_id} not found")
-                return result
+                print(f"❌ TOOL ERROR: Session {session_id} not found, attempting auto-creation...")
+                
+                # Auto-create session if it doesn't exist (similar to get_state action)
+                try:
+                    new_session = TramiteSession(
+                        id=session_id,
+                        conversation_id=conversation_id,
+                        tramite_type=TramiteType.SAT_RFC_INSCRIPCION_PF.value,
+                        current_phase=ConversationPhase.WELCOME.value,
+                        completion_percentage=0.0,
+                        is_completed=False
+                    )
+                    
+                    db.add(new_session)
+                    
+                    # Create empty user profile
+                    user_profile = UserProfile(
+                        tramite_session_id=session_id,
+                        nationality="mexicana"
+                    )
+                    
+                    db.add(user_profile)
+                    db.flush()  # Flush to get IDs before using them
+                    
+                    print(f"🗂️ TOOL DEBUG: Auto-created session {session_id} with user_profile successfully")
+                    session = new_session
+                    
+                except Exception as auto_create_error:
+                    print(f"❌ TOOL ERROR: Failed to auto-create session: {auto_create_error}")
+                    result["errors"].append(f"Session {session_id} not found and auto-creation failed: {str(auto_create_error)}")
+                    return result
                 
             user_profile = session.user_profile
             if not user_profile:
@@ -257,21 +319,30 @@ def manage_conversation_state(
             contact_updates.update(direct_contact_fields)
             
             if contact_updates:
+                print(f"🗂️ TOOL DEBUG: Processing contact updates: {contact_updates}")
                 contact_info = user_profile.contact_info
+                print(f"🗂️ TOOL DEBUG: Existing contact_info: {contact_info}")
+                
                 if not contact_info:
+                    print(f"🗂️ TOOL DEBUG: Creating new ContactInfo for user_profile_id: {user_profile.id}")
                     contact_info = ContactInfo(user_profile_id=user_profile.id)
                     db.add(contact_info)
-                    print(f"🗂️ TOOL DEBUG: Created new ContactInfo for user_profile_id: {user_profile.id}")
+                    db.flush()  # Ensure the ContactInfo gets an ID before proceeding
+                    print(f"🗂️ TOOL DEBUG: ContactInfo created successfully with id: {contact_info.id}")
                     
                 if "email" in contact_updates:
+                    old_email = contact_info.email
                     contact_info.email = contact_updates["email"]
                     updated_fields.append("email")
-                    print(f"🗂️ TOOL DEBUG: Updated email: {contact_updates['email']}")
+                    print(f"🗂️ TOOL DEBUG: Updated email: {old_email} → {contact_updates['email']}")
                     
                 if "phone" in contact_updates:
+                    old_phone = contact_info.phone
                     contact_info.phone = contact_updates["phone"] 
                     updated_fields.append("phone")
-                    print(f"🗂️ TOOL DEBUG: Updated phone: {contact_updates['phone']}")
+                    print(f"🗂️ TOOL DEBUG: Updated phone: {old_phone} → {contact_updates['phone']}")
+                
+                print(f"🗂️ TOOL DEBUG: ContactInfo final state - email: {contact_info.email}, phone: {contact_info.phone}")
             
             # Update address - handle both nested and direct formats
             address_updates = profile_updates.get("address", {})
@@ -321,14 +392,30 @@ def manage_conversation_state(
                         updated_fields.append(field)
                         print(f"🗂️ TOOL DEBUG: Updated address.{field}: {address_updates[field]}")
             
-            user_profile.updated_at = datetime.utcnow()
-            db.commit()
+            # Update timestamp and commit changes
+            user_profile.updated_at = datetime.now()
+            print(f"🗂️ TOOL DEBUG: Updated user_profile.updated_at: {user_profile.updated_at}")
+            print(f"🗂️ TOOL DEBUG: Updated fields: {updated_fields}")
             
-            result["success"] = True
-            result["data"] = {
-                "updated_fields": updated_fields,
-                "updated_at": datetime.now().isoformat()
-            }
+            try:
+                print(f"🗂️ TOOL DEBUG: About to commit transaction...")
+                db.commit()
+                print(f"✅ TOOL SUCCESS: Transaction committed successfully!")
+                
+                result["success"] = True
+                result["data"] = {
+                    "updated_fields": updated_fields,
+                    "updated_at": datetime.now().isoformat(),
+                    "session_id": session_id,
+                    "user_profile_id": user_profile.id
+                }
+                
+            except Exception as commit_error:
+                print(f"❌ TOOL ERROR: Failed to commit transaction: {commit_error}")
+                print(f"❌ TOOL ERROR: Commit error type: {type(commit_error)}")
+                db.rollback()
+                result["errors"].append(f"Failed to save changes: {str(commit_error)}")
+                return result
             
         elif action == "get_state":
             # Get current session state with auto-creation fallback
@@ -412,6 +499,7 @@ def manage_conversation_state(
             
         elif action == "update_checklist":
             # Update checklist progress
+            data = data or {}  # Handle None data
             session = db.query(TramiteSession).filter(
                 TramiteSession.id == session_id
             ).first()
@@ -426,7 +514,7 @@ def manage_conversation_state(
             if completion_percentage >= 100:
                 session.is_completed = True
                 
-            session.updated_at = datetime.utcnow()
+            session.updated_at = datetime.now()
             db.commit()
             
             result["success"] = True
@@ -442,10 +530,29 @@ def manage_conversation_state(
     except Exception as e:
         print(f"❌ TOOL ERROR: manage_conversation_state failed: {str(e)}")
         print(f"❌ TOOL ERROR: Exception type: {type(e)}")
-        db.rollback()
+        import traceback
+        print(f"❌ TOOL ERROR: Full traceback:")
+        traceback.print_exc()
+        
+        try:
+            db.rollback()
+            print(f"🗂️ TOOL DEBUG: Transaction rolled back successfully")
+        except Exception as rollback_error:
+            print(f"❌ TOOL ERROR: Failed to rollback transaction: {rollback_error}")
+            
         result["errors"].append(f"Database error: {str(e)}")
     finally:
-        db.close()
+        try:
+            db.close()
+            print(f"🗂️ TOOL DEBUG: Database session closed")
+        except Exception as close_error:
+            print(f"❌ TOOL ERROR: Failed to close database session: {close_error}")
+            
+        # Also close the generator properly
+        try:
+            db_generator.close()
+        except Exception:
+            pass  # Generator might not be closable in all cases
     
     print(f"🗂️ TOOL DEBUG: Returning result: {result}")
     return result

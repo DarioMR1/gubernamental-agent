@@ -4,6 +4,10 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from typing import Optional
 
+# Use timezone-aware datetime
+def utc_now():
+    return datetime.now()
+
 Base = declarative_base()
 
 
@@ -12,8 +16,8 @@ class Conversation(Base):
     
     id = Column(String, primary_key=True, index=True)
     title = Column(String(200), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationship
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
@@ -27,7 +31,7 @@ class Message(Base):
     conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False)
     role = Column(String(20), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationship
     conversation = relationship("Conversation", back_populates="messages")
@@ -43,8 +47,8 @@ class TramiteSession(Base):
     completion_percentage = Column(Float, default=0.0)
     is_completed = Column(Boolean, default=False)
     preferred_modality = Column(String(20), nullable=True)  # TramiteModality enum
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     conversation = relationship("Conversation", back_populates="tramite_sessions")
@@ -66,8 +70,8 @@ class UserProfile(Base):
     nationality = Column(String(50), default="mexicana")
     is_minor = Column(Boolean, default=False)
     has_legal_representative = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     tramite_session = relationship("TramiteSession", back_populates="user_profile")
@@ -84,8 +88,8 @@ class ContactInfo(Base):
     email = Column(String(255), nullable=True)
     phone = Column(String(20), nullable=True)
     alternative_phone = Column(String(20), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationship
     user_profile = relationship("UserProfile", back_populates="contact_info")
@@ -105,8 +109,8 @@ class Address(Base):
     state = Column(String(100), nullable=True)
     country = Column(String(100), default="México")
     is_fiscal_address = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationship
     user_profile = relationship("UserProfile", back_populates="address")
@@ -123,7 +127,7 @@ class ValidatedIdentifier(Base):
     validation_score = Column(Float, nullable=False)
     extracted_data = Column(JSON, nullable=True)
     validation_errors = Column(JSON, nullable=True)
-    validated_at = Column(DateTime, default=datetime.utcnow)
+    validated_at = Column(DateTime, default=utc_now)
     
     # Relationship
     user_profile = relationship("UserProfile", back_populates="validated_identifiers")
@@ -143,7 +147,7 @@ class ValidatedDocument(Base):
     validation_errors = Column(JSON, nullable=True)
     expiry_date = Column(Date, nullable=True)
     is_valid = Column(Boolean, nullable=False)
-    validated_at = Column(DateTime, default=datetime.utcnow)
+    validated_at = Column(DateTime, default=utc_now)
     
     # Relationship
     tramite_session = relationship("TramiteSession", back_populates="validated_documents")
@@ -162,8 +166,8 @@ class ChecklistItem(Base):
     validation_notes = Column(JSON, nullable=True)
     help_text = Column(Text, nullable=True)
     order_index = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationship
     tramite_session = relationship("TramiteSession", back_populates="checklist_items")

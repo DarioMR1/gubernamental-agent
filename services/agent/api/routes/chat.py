@@ -274,16 +274,39 @@ async def stream_message(
             
             messages_to_save = []
             assistant_response = ""
+            tool_call_messages = []  # Track tool call messages separately
             
-            # Get the raw agent instead of the wrapper to use astream_events
+            # Get the agent and prepare messages correctly
             from agents.workflows.chat_agent import create_government_tramites_agent
             from agents.prompts.chat_prompts import GOVERNMENT_TRAMITES_SYSTEM_PROMPT
             
             base_agent = create_government_tramites_agent()
             
-            # Prepare messages with system prompt
+            # Prepare messages with system prompt and session context
             messages = []
-            messages.append({"role": "system", "content": GOVERNMENT_TRAMITES_SYSTEM_PROMPT})
+            
+            # Get current step from session for context
+            current_step = "1"  # Default to step 1
+            try:
+                from agents.tools.conversation_state_tool import manage_conversation_state
+                state_result = manage_conversation_state.invoke({
+                    "action": "get_state",
+                    "session_id": session_id,
+                    "conversation_id": conversation_id
+                })
+                if state_result.get('success') and state_result.get('data'):
+                    current_phase = state_result['data'].get('current_phase', '')
+                    if current_phase.startswith('STEP_'):
+                        current_step = current_phase.replace('STEP_', '')
+            except Exception as e:
+                print(f"Warning: Could not get current step: {e}")
+
+            # Add system prompt with session context
+            system_prompt_with_context = f"""{GOVERNMENT_TRAMITES_SYSTEM_PROMPT}
+
+SESSION: session_id="{session_id}", conversation_id="{conversation_id}" (use these exact IDs)
+CURRENT_STEP: {current_step} (continue from this step)"""
+            messages.append({"role": "system", "content": system_prompt_with_context})
             
             # Add conversation history
             for msg in formatted_messages[-10:]:  # Limit to last 10
@@ -459,11 +482,53 @@ async def stream_message(
                     
                 elif event_kind == "on_tool_start":
                     tool_input = make_serializable(event_data.get("input", {}))
-                    yield f"data: {json.dumps({'event': 'tool_call_start', 'data': {'tool': event_name, 'input': tool_input}})}\n\n"
+                    
+                    # Send tool call as a separate message
+                    tool_start_message = f"🔧 Utilizando herramienta: **{event_name}**"
+                    tool_message_data = {
+                        'event': 'tool_message', 
+                        'data': {
+                            'message_type': 'tool_call',
+                            'content': tool_start_message,
+                            'tool_name': event_name,
+                            'tool_input': tool_input,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    }
+                    
+                    # Add to list of messages to save
+                    tool_call_messages.append({
+                        'role': 'assistant',
+                        'content': tool_start_message,
+                        'message_type': 'tool_call'
+                    })
+                    
+                    yield f"data: {json.dumps(tool_message_data)}\n\n"
                     
                 elif event_kind == "on_tool_end":
                     tool_output = make_serializable(event_data.get("output", {}))
-                    yield f"data: {json.dumps({'event': 'tool_call_end', 'data': {'tool': event_name, 'output': tool_output}})}\n\n"
+                    
+                    # Send tool completion as a separate message
+                    tool_end_message = f"✅ **{event_name}** completado"
+                    tool_complete_data = {
+                        'event': 'tool_message',
+                        'data': {
+                            'message_type': 'tool_complete',
+                            'content': tool_end_message,
+                            'tool_name': event_name,
+                            'tool_output': tool_output,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    }
+                    
+                    # Add to list of messages to save
+                    tool_call_messages.append({
+                        'role': 'assistant',
+                        'content': tool_end_message,
+                        'message_type': 'tool_complete'
+                    })
+                    
+                    yield f"data: {json.dumps(tool_complete_data)}\n\n"
                     
                 elif event_kind == "on_chain_start":
                     if event_name == "Agent":
@@ -500,11 +565,15 @@ async def stream_message(
                 print("Warning: No assistant response captured from streaming, using fallback")
                 assistant_response = "Hola, soy tu consultor especializado en trámites del SAT. ¿En qué puedo ayudarte hoy?"
             
-            # Prepare messages to save
-            messages_to_save = [
-                {"role": "user", "content": request.message},
-                {"role": "assistant", "content": assistant_response}
-            ]
+            # Prepare messages to save - include user message, tool calls, and assistant response
+            messages_to_save = [{"role": "user", "content": request.message}]
+            
+            # Add tool call messages in chronological order
+            messages_to_save.extend(tool_call_messages)
+            
+            # Add final assistant response
+            if assistant_response:
+                messages_to_save.append({"role": "assistant", "content": assistant_response})
             
             # Save messages to database
             for message_data in messages_to_save:
