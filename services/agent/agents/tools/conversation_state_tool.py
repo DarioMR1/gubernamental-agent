@@ -32,9 +32,46 @@ def manage_conversation_state(
         conversation_id: Associated conversation ID
         data: Action-specific data
         
+    For 'update_profile' action, data can be in two formats:
+    
+    FORMAT 1 - Structured (recommended):
+    data = {
+        "profile_data": {
+            "full_name": "Juan Pérez García",
+            "first_name": "Juan",
+            "last_name": "Pérez",
+            "mother_last_name": "García",
+            "birth_date": "1990-01-01",
+            "nationality": "mexicana",
+            "contact_info": {
+                "email": "juan@example.com",
+                "phone": "5512345678"
+            },
+            "address": {
+                "street": "Av. Reforma 123",
+                "neighborhood": "Centro",
+                "postal_code": "06000",
+                "municipality": "Cuauhtémoc",
+                "state": "Ciudad de México"
+            }
+        }
+    }
+    
+    FORMAT 2 - Direct (for compatibility):
+    data = {
+        "nombre": "Juan Pérez García",           # Maps to full_name
+        "email": "juan@example.com",            # Maps to contact_info.email  
+        "telefono": "5512345678"                # Maps to contact_info.phone
+    }
+        
     Returns:
         Dict with operation result and current state
     """
+    
+    # Debug logging
+    print(f"🗂️ TOOL DEBUG: manage_conversation_state called")
+    print(f"🗂️ TOOL DEBUG: action={action}, session_id={session_id}, conversation_id={conversation_id}")
+    print(f"🗂️ TOOL DEBUG: data={data}")
     
     result = {
         "success": False,
@@ -45,7 +82,9 @@ def manage_conversation_state(
         "errors": []
     }
     
+    print(f"🗂️ TOOL DEBUG: Getting database session...")
     db: Session = next(get_database())
+    print(f"🗂️ TOOL DEBUG: Database session acquired successfully")
     
     try:
         if action == "create":
@@ -126,6 +165,12 @@ def manage_conversation_state(
             # Update user profile
             profile_updates = data.get("profile_data", {})
             
+            # COMPATIBILITY: Handle direct data format from agent
+            # If profile_data is empty but we have direct fields, use those
+            if not profile_updates and data:
+                profile_updates = data.copy()
+                print(f"🗂️ TOOL DEBUG: Using direct data format: {profile_updates}")
+            
             session = db.query(TramiteSession).filter(
                 TramiteSession.id == session_id
             ).first()
@@ -139,12 +184,17 @@ def manage_conversation_state(
                 result["errors"].append(f"User profile not found for session {session_id}")
                 return result
             
-            # Update profile fields
+            # Update profile fields with multiple field name support
             updated_fields = []
-            if "full_name" in profile_updates:
-                user_profile.full_name = profile_updates["full_name"]
-                updated_fields.append("full_name")
-                
+            
+            # Handle full_name / nombre / nombre_completo
+            for name_field in ["full_name", "nombre", "nombre_completo"]:
+                if name_field in profile_updates:
+                    user_profile.full_name = profile_updates[name_field]
+                    updated_fields.append("full_name")
+                    print(f"🗂️ TOOL DEBUG: Updated full_name from '{name_field}': {profile_updates[name_field]}")
+                    break
+                    
             if "first_name" in profile_updates:
                 user_profile.first_name = profile_updates["first_name"]
                 updated_fields.append("first_name")
@@ -158,36 +208,110 @@ def manage_conversation_state(
                 updated_fields.append("mother_last_name")
                 
             if "birth_date" in profile_updates:
-                user_profile.birth_date = profile_updates["birth_date"]
-                updated_fields.append("birth_date")
+                birth_date_value = profile_updates["birth_date"]
+                # Convert string date to datetime.date object if needed
+                if isinstance(birth_date_value, str):
+                    try:
+                        # Try common date formats
+                        if "-" in birth_date_value:  # YYYY-MM-DD
+                            birth_date_obj = datetime.strptime(birth_date_value, "%Y-%m-%d").date()
+                        elif "/" in birth_date_value:  # MM/DD/YYYY or DD/MM/YYYY
+                            birth_date_obj = datetime.strptime(birth_date_value, "%m/%d/%Y").date()
+                        else:
+                            birth_date_obj = datetime.strptime(birth_date_value, "%Y-%m-%d").date()
+                        
+                        user_profile.birth_date = birth_date_obj
+                        updated_fields.append("birth_date")
+                        print(f"🗂️ TOOL DEBUG: Updated birth_date from string '{birth_date_value}' to date object")
+                    except ValueError as e:
+                        print(f"🗂️ TOOL DEBUG: Failed to parse birth_date '{birth_date_value}': {e}")
+                        result["errors"].append(f"Invalid birth_date format: {birth_date_value}")
+                else:
+                    user_profile.birth_date = birth_date_value
+                    updated_fields.append("birth_date")
+                    print(f"🗂️ TOOL DEBUG: Updated birth_date with date object")
                 
             if "nationality" in profile_updates:
                 user_profile.nationality = profile_updates["nationality"]
                 updated_fields.append("nationality")
             
-            # Update contact info
+            # Handle economic activity (stored as session metadata for now)
+            for activity_field in ["activity_economic", "actividad_economica", "economic_activity"]:
+                if activity_field in profile_updates:
+                    # For now, we'll store this in the session metadata or add to validation notes
+                    # Since there's no direct field in UserProfile for economic activity
+                    print(f"🗂️ TOOL DEBUG: Economic activity identified: {profile_updates[activity_field]}")
+                    updated_fields.append("economic_activity")
+                    break
+            
+            # Update contact info - handle both nested and direct formats
             contact_updates = profile_updates.get("contact_info", {})
+            
+            # COMPATIBILITY: Check for direct contact fields in main data
+            direct_contact_fields = {}
+            for field_name, expected_name in [("email", "email"), ("telefono", "phone"), ("phone", "phone")]:
+                if field_name in profile_updates:
+                    direct_contact_fields[expected_name] = profile_updates[field_name]
+            
+            # Merge direct fields with nested contact_info
+            contact_updates.update(direct_contact_fields)
+            
             if contact_updates:
                 contact_info = user_profile.contact_info
                 if not contact_info:
                     contact_info = ContactInfo(user_profile_id=user_profile.id)
                     db.add(contact_info)
+                    print(f"🗂️ TOOL DEBUG: Created new ContactInfo for user_profile_id: {user_profile.id}")
                     
                 if "email" in contact_updates:
                     contact_info.email = contact_updates["email"]
                     updated_fields.append("email")
+                    print(f"🗂️ TOOL DEBUG: Updated email: {contact_updates['email']}")
                     
                 if "phone" in contact_updates:
                     contact_info.phone = contact_updates["phone"] 
                     updated_fields.append("phone")
+                    print(f"🗂️ TOOL DEBUG: Updated phone: {contact_updates['phone']}")
             
-            # Update address
+            # Update address - handle both nested and direct formats
             address_updates = profile_updates.get("address", {})
+            
+            # COMPATIBILITY: Handle 'direccion' field from agent
+            if "direccion" in profile_updates:
+                if isinstance(profile_updates["direccion"], dict):
+                    address_updates.update(profile_updates["direccion"])
+                    print(f"🗂️ TOOL DEBUG: Found direccion dict: {profile_updates['direccion']}")
+                elif isinstance(profile_updates["direccion"], str):
+                    # Parse simple address string
+                    address_updates["street"] = profile_updates["direccion"]
+                    print(f"🗂️ TOOL DEBUG: Found direccion string: {profile_updates['direccion']}")
+            
+            # COMPATIBILITY: Map Spanish field names to English
+            address_field_mapping = {
+                "calle": "street",
+                "numero_exterior": "exterior_number",
+                "numero_interior": "interior_number",
+                "colonia": "neighborhood",
+                "codigo_postal": "postal_code",
+                "municipio": "municipality",
+                "delegacion": "municipality",  # Maps delegacion → municipality
+                "estado": "state"
+            }
+            
+            # Apply field mapping
+            for spanish_field, english_field in address_field_mapping.items():
+                if spanish_field in address_updates:
+                    address_updates[english_field] = address_updates[spanish_field]
+                    print(f"🗂️ TOOL DEBUG: Mapped address field '{spanish_field}' → '{english_field}': {address_updates[spanish_field]}")
+                    # Remove the original Spanish field to avoid duplication
+                    del address_updates[spanish_field]
+            
             if address_updates:
                 address = user_profile.address
                 if not address:
                     address = Address(user_profile_id=user_profile.id)
                     db.add(address)
+                    print(f"🗂️ TOOL DEBUG: Created new Address for user_profile_id: {user_profile.id}")
                     
                 address_fields = ["street", "exterior_number", "interior_number", 
                                 "neighborhood", "postal_code", "municipality", "state"]
@@ -195,6 +319,7 @@ def manage_conversation_state(
                     if field in address_updates:
                         setattr(address, field, address_updates[field])
                         updated_fields.append(field)
+                        print(f"🗂️ TOOL DEBUG: Updated address.{field}: {address_updates[field]}")
             
             user_profile.updated_at = datetime.utcnow()
             db.commit()
@@ -206,14 +331,43 @@ def manage_conversation_state(
             }
             
         elif action == "get_state":
-            # Get current session state
+            # Get current session state with auto-creation fallback
             session = db.query(TramiteSession).filter(
                 TramiteSession.id == session_id
             ).first()
             
             if not session:
-                result["errors"].append(f"Session {session_id} not found")
-                return result
+                print(f"🗂️ TOOL DEBUG: Session {session_id} not found, attempting auto-creation...")
+                
+                # Auto-create session if it doesn't exist
+                try:
+                    new_session = TramiteSession(
+                        id=session_id,
+                        conversation_id=conversation_id,
+                        tramite_type=TramiteType.SAT_RFC_INSCRIPCION_PF.value,
+                        current_phase=ConversationPhase.WELCOME.value,
+                        completion_percentage=0.0,
+                        is_completed=False
+                    )
+                    
+                    db.add(new_session)
+                    
+                    # Create empty user profile
+                    user_profile = UserProfile(
+                        tramite_session_id=session_id,
+                        nationality="mexicana"
+                    )
+                    
+                    db.add(user_profile)
+                    db.commit()
+                    
+                    print(f"🗂️ TOOL DEBUG: Auto-created session {session_id} successfully")
+                    session = new_session
+                    
+                except Exception as auto_create_error:
+                    print(f"❌ TOOL ERROR: Failed to auto-create session: {auto_create_error}")
+                    result["errors"].append(f"Session {session_id} not found and auto-creation failed: {str(auto_create_error)}")
+                    return result
                 
             profile_data = {}
             if session.user_profile:
@@ -286,9 +440,12 @@ def manage_conversation_state(
             result["errors"].append(f"Unknown action: {action}")
             
     except Exception as e:
+        print(f"❌ TOOL ERROR: manage_conversation_state failed: {str(e)}")
+        print(f"❌ TOOL ERROR: Exception type: {type(e)}")
         db.rollback()
         result["errors"].append(f"Database error: {str(e)}")
     finally:
         db.close()
-        
+    
+    print(f"🗂️ TOOL DEBUG: Returning result: {result}")
     return result

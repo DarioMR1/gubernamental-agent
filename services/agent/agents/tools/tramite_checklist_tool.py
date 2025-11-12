@@ -26,6 +26,11 @@ def generate_tramite_checklist(
         Dict with checklist, completion status, and next steps
     """
     
+    # Debug logging
+    print(f"📋 CHECKLIST DEBUG: generate_tramite_checklist called")
+    print(f"📋 CHECKLIST DEBUG: tramite_type={tramite_type}, session_id={session_id}")
+    print(f"📋 CHECKLIST DEBUG: current_documents={current_documents}")
+    
     result = {
         "success": False,
         "tramite_type": tramite_type,
@@ -73,11 +78,14 @@ def generate_tramite_checklist(
         result["success"] = True
         
     except Exception as e:
+        print(f"❌ CHECKLIST ERROR: generate_tramite_checklist failed: {str(e)}")
+        print(f"❌ CHECKLIST ERROR: Exception type: {type(e)}")
         db.rollback()
         result["errors"].append(f"Checklist generation error: {str(e)}")
     finally:
         db.close()
-        
+    
+    print(f"📋 CHECKLIST DEBUG: Returning result: {result}")
     return result
 
 
@@ -207,8 +215,17 @@ def _generate_rfc_inscripcion_checklist(session, current_documents: List = None)
         "help_text": "Esto define qué obligaciones fiscales tendrás"
     }
     
-    # Check if activity has been declared (would be stored in session metadata)
-    # For now, mark as pending
+    # Check if economic activity has been declared in session
+    # Since economic activity is stored when conversation_state_tool processes it,
+    # we'll check for its presence in the validated data or checklist items
+    if session and session.checklist_items:
+        # Check if economic activity was previously marked as completed
+        for existing_item in session.checklist_items:
+            if existing_item.requirement_id == "economic_activity" and existing_item.status == RequirementStatus.COMPLETED.value:
+                activity_requirement["status"] = RequirementStatus.COMPLETED.value
+                activity_requirement["validation_notes"] = ["Actividad económica registrada"]
+                break
+    
     checklist.append(activity_requirement)
     
     # Calculate completion percentage

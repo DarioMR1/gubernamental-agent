@@ -55,8 +55,55 @@ def create_enhanced_agent_with_state():
         user_message = input_data.get("user_message", "")
         existing_messages = input_data.get("existing_messages", [])
         
-        # Generate unique session ID for tramite tracking
-        session_id = input_data.get("session_id") or f"tramite_{uuid4().hex[:8]}"
+        # Generate proper UUID for session ID (industry standard)
+        session_id = input_data.get("session_id") or str(uuid4())
+        
+        print(f"🔧 WORKFLOW DEBUG: Generated session_id={session_id} for conversation={conversation_id}")
+        
+        # IMPORTANT: Pre-create tramite session to ensure persistence with retry logic
+        session_created = False
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                from agents.tools.conversation_state_tool import manage_conversation_state
+                print(f"🔧 WORKFLOW DEBUG: Pre-creating tramite session (attempt {attempt + 1}/{max_retries})...")
+                
+                session_result = manage_conversation_state.invoke({
+                    "action": "create",
+                    "session_id": session_id,
+                    "conversation_id": conversation_id,
+                    "data": {"tramite_type": "SAT_RFC_INSCRIPCION_PF"}
+                })
+                
+                session_created = session_result.get('success', False)
+                print(f"🔧 WORKFLOW DEBUG: Session creation result: {session_created}")
+                
+                if session_created:
+                    print(f"✅ WORKFLOW DEBUG: Session {session_id} created/verified successfully")
+                    break
+                else:
+                    print(f"❌ WORKFLOW DEBUG: Session creation failed: {session_result.get('errors', [])}")
+                    
+            except Exception as e:
+                print(f"⚠️ WORKFLOW DEBUG: Failed to pre-create session (attempt {attempt + 1}): {e}")
+                if attempt == max_retries - 1:
+                    print(f"💀 WORKFLOW DEBUG: All retry attempts failed. Session tools may auto-create if needed.")
+        
+        # Verify session exists by attempting to get state
+        if session_created:
+            try:
+                verify_result = manage_conversation_state.invoke({
+                    "action": "get_state",
+                    "session_id": session_id,
+                    "conversation_id": conversation_id
+                })
+                if verify_result.get('success'):
+                    print(f"🔍 WORKFLOW DEBUG: Session verification successful")
+                else:
+                    print(f"⚠️ WORKFLOW DEBUG: Session verification failed: {verify_result.get('errors', [])}")
+            except Exception as e:
+                print(f"⚠️ WORKFLOW DEBUG: Failed to verify session: {e}")
         
         # Prepare input for ReAct agent with system prompt
         # Include system prompt and conversation history
@@ -80,9 +127,73 @@ def create_enhanced_agent_with_state():
             "existing_messages": existing_messages
         }
         
+        # Get current session state to provide context to the agent
+        current_session_info = ""
         try:
-            # Execute ReAct agent
+            if session_created:
+                verify_result = manage_conversation_state.invoke({
+                    "action": "get_state",
+                    "session_id": session_id,
+                    "conversation_id": conversation_id
+                })
+                if verify_result.get('success'):
+                    session_data = verify_result.get('data', {})
+                    current_session_info = f"""
+ESTADO ACTUAL DE LA SESIÓN:
+- Tipo de trámite: {session_data.get('tramite_type', 'SAT_RFC_INSCRIPCION_PF')}
+- Fase actual: {session_data.get('current_phase', 'WELCOME')}
+- Progreso: {session_data.get('completion_percentage', 0)}%
+- Perfil de usuario: {'Parcial' if session_data.get('user_profile') else 'Vacío'}
+"""
+        except Exception as e:
+            print(f"⚠️ WORKFLOW DEBUG: Could not get session state for context: {e}")
+
+        # Add session context to the agent's system prompt for tool usage
+        system_prompt_with_context = f"""
+{messages[0]['content'] if messages and messages[0]['role'] == 'system' else ''}
+
+INFORMACIÓN DE SESIÓN CRÍTICA:
+- session_id: {session_id}
+- conversation_id: {conversation_id}
+{current_session_info}
+
+INSTRUCCIONES OBLIGATORIAS PARA HERRAMIENTAS:
+1. SIEMPRE usa session_id="{session_id}" en manage_conversation_state
+2. SIEMPRE usa conversation_id="{conversation_id}" en manage_conversation_state  
+3. NUNCA inventes IDs diferentes
+4. Si necesitas información del usuario, primero llama: manage_conversation_state(action="get_state", session_id="{session_id}", conversation_id="{conversation_id}")
+5. Para guardar información nueva, usa: manage_conversation_state(action="update_profile", session_id="{session_id}", conversation_id="{conversation_id}", data=...)
+
+IMPORTANTE: Estos IDs son exactos y deben usarse literalmente en todas las llamadas a herramientas.
+"""
+        
+        if messages and messages[0]['role'] == 'system':
+            messages[0]['content'] = system_prompt_with_context
+        
+        try:
+            # Execute ReAct agent with detailed logging
+            print(f"🤖 AGENT DEBUG: Starting ReAct execution for conversation {conversation_id}")
+            print(f"📝 AGENT DEBUG: Messages in input: {len(enhanced_input['messages'])}")
+            
             result = await base_agent.ainvoke(enhanced_input)
+            
+            print(f"✅ AGENT DEBUG: ReAct completed. Result keys: {result.keys() if isinstance(result, dict) else 'Not dict'}")
+            
+            if "messages" in result:
+                print(f"📨 AGENT DEBUG: Found {len(result['messages'])} messages in result")
+                for i, msg in enumerate(result["messages"]):
+                    msg_type = str(type(msg).__name__)
+                    content_preview = getattr(msg, 'content', str(msg))[:100] if hasattr(msg, 'content') else str(msg)[:100]
+                    print(f"📨 AGENT DEBUG: Message {i}: {msg_type} - {content_preview}...")
+                    
+                    # Log tool calls and reasoning
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        for tool_call in msg.tool_calls:
+                            print(f"🔧 TOOL CALL: {tool_call.get('name', 'unknown')} with args: {tool_call.get('args', {})}")
+                    
+                    # Log additional message data for debugging
+                    if hasattr(msg, 'additional_kwargs'):
+                        print(f"📎 AGENT DEBUG: Additional data: {msg.additional_kwargs}")
             
             # Extract assistant response from agent result
             assistant_response = ""
@@ -94,14 +205,17 @@ def create_enhanced_agent_with_state():
                         # This is a LangChain message object (AIMessage, HumanMessage, etc.)
                         if hasattr(msg, 'type') and msg.type in ['ai', 'assistant'] or str(type(msg).__name__) == 'AIMessage':
                             assistant_response = msg.content
+                            print(f"💬 AGENT DEBUG: Extracted final response: {assistant_response[:200]}...")
                             break
                     # Handle dictionary messages as fallback
                     elif isinstance(msg, dict) and msg.get("role") in ["ai", "assistant"]:
                         assistant_response = msg.get("content", "")
+                        print(f"💬 AGENT DEBUG: Extracted dict response: {assistant_response[:200]}...")
                         break
             
             if not assistant_response:
                 assistant_response = "Hola, soy tu consultor especializado en trámites del SAT. ¿En qué puedo ayudarte hoy?"
+                print(f"⚠️ AGENT DEBUG: Using fallback response")
             
             # Prepare messages to save
             messages_to_save = [

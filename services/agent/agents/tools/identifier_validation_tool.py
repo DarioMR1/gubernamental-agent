@@ -28,6 +28,10 @@ def validate_official_identifier(
         Dict with validation result, extracted data, and confidence level
     """
     
+    # Debug logging
+    print(f"🔍 VALIDATION DEBUG: validate_official_identifier called")
+    print(f"🔍 VALIDATION DEBUG: identifier_type={identifier_type}, value={value}, session_id={session_id}")
+    
     result = {
         "success": False,
         "identifier_type": identifier_type,

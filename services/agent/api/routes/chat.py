@@ -98,9 +98,13 @@ async def send_message(
             for msg in reversed(existing_messages)  # Reverse to chronological order
         ]
         
+        # Generate consistent session_id based on conversation_id
+        session_id = f"session_{conversation_id}"
+        
         # Execute workflow
         result = await workflow({
             "conversation_id": conversation_id,
+            "session_id": session_id,
             "user_message": request.message,
             "existing_messages": formatted_messages
         })
