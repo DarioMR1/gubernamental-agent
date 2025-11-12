@@ -3,7 +3,7 @@
 import logging
 import asyncio
 from datetime import datetime
-import pkg_resources
+import importlib.metadata
 
 from fastapi import APIRouter, Depends
 from ..types import HealthResponse, HealthStatus, ComponentHealth
@@ -68,9 +68,9 @@ async def health_check():
     
     # Get application version
     try:
-        version = pkg_resources.get_distribution("gubernamental-agent").version
+        version = importlib.metadata.version("gubernamental-agent")
     except Exception:
-        version = "unknown"
+        version = "1.0.0-dev"
     
     return HealthResponse(
         status=overall_status,

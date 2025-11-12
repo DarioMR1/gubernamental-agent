@@ -54,9 +54,9 @@ def create_application() -> FastAPI:
         title="Governmental Agent API",
         description="REST API for automating governmental portal tasks using AI agents",
         version="1.0.0",
-        docs_url="/docs" if env.ENVIRONMENT == "development" else None,
-        redoc_url="/redoc" if env.ENVIRONMENT == "development" else None,
-        openapi_url="/openapi.json" if env.ENVIRONMENT == "development" else None,
+        docs_url="/docs" if env.environment == "development" else None,
+        redoc_url="/redoc" if env.environment == "development" else None,
+        openapi_url="/openapi.json" if env.environment == "development" else None,
         lifespan=lifespan
     )
     
@@ -77,16 +77,16 @@ def _configure_middleware(app: FastAPI, env: Environment) -> None:
     """Configure application middleware."""
     
     # Security headers and trusted hosts
-    if env.ALLOWED_HOSTS:
+    if env.allowed_hosts:
         app.add_middleware(
             TrustedHostMiddleware, 
-            allowed_hosts=env.ALLOWED_HOSTS
+            allowed_hosts=env.allowed_hosts
         )
     
     # CORS configuration
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=env.CORS_ORIGINS,
+        allow_origins=env.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
@@ -199,8 +199,8 @@ def run_dev_server() -> None:
     
     uvicorn.run(
         "src.api.main:app",
-        host=env.API_HOST,
-        port=env.API_PORT,
+        host=env.api_host,
+        port=env.api_port,
         reload=True,
         log_level="info",
         access_log=True

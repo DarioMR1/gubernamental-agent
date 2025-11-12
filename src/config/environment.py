@@ -1,7 +1,7 @@
 """Environment configuration management."""
 
 import os
-from typing import Optional
+from typing import Optional, List, Union
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 
@@ -49,8 +49,8 @@ class Environment(BaseSettings):
     environment: str = Field("development", env="ENVIRONMENT")
     
     # CORS Configuration
-    cors_origins: list = Field(["http://localhost:3000", "http://localhost:3001"], env="CORS_ORIGINS")
-    allowed_hosts: Optional[list] = Field(None, env="ALLOWED_HOSTS")
+    cors_origins: Union[List[str], str] = Field(["http://localhost:3000", "http://localhost:3001"], env="CORS_ORIGINS")
+    allowed_hosts: Optional[Union[List[str], str]] = Field(None, env="ALLOWED_HOSTS")
     
     # Authentication Configuration
     jwt_secret: Optional[str] = Field(None, env="JWT_SECRET")

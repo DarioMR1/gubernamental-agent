@@ -8,7 +8,8 @@ import json
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ...monitoring import StructuredLogger
+# from ...monitoring import StructuredLogger
+# from ...config import AgentConfig
 
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,9 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             "/openapi.json"
         }
         
-        # Initialize structured logger
-        self.structured_logger = StructuredLogger()
+        # Initialize structured logger (simplified for now)
+        # config = AgentConfig()
+        # self.structured_logger = StructuredLogger(config)
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request with structured logging."""
@@ -63,13 +65,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         }
         
         # Log request start
-        self.structured_logger.log_api_request_start(
-            method=request.method,
-            path=request.url.path,
-            request_id=request_id,
-            client_ip=request_info["client_ip"],
-            user_agent=request_info["user_agent"]
-        )
+        logger.info(f"API Request: {request.method} {request.url.path} (ID: {request_id})")
         
         # Process request and capture response
         response = None
@@ -109,22 +105,9 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         
         # Log request completion
         if error:
-            self.structured_logger.log_api_request_error(
-                method=request.method,
-                path=request.url.path,
-                status_code=response_info["status_code"],
-                processing_time=processing_time,
-                request_id=request_id,
-                error=str(error)
-            )
+            logger.error(f"API Error: {request.method} {request.url.path} - {response_info['status_code']} - {str(error)}")
         else:
-            self.structured_logger.log_api_request_success(
-                method=request.method,
-                path=request.url.path,
-                status_code=response_info["status_code"],
-                processing_time=processing_time,
-                request_id=request_id
-            )
+            logger.info(f"API Success: {request.method} {request.url.path} - {response_info['status_code']} - {response_info['processing_time_ms']}ms")
         
         # Add response headers for observability
         if response:

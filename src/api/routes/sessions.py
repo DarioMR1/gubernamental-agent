@@ -55,7 +55,7 @@ async def create_session(
                 "timeout_seconds": request.timeout_seconds,
                 "user_id": current_user["user_id"],
                 "created_by": current_user["username"],
-                **request.metadata or {}
+                **(request.metadata or {})
             }
         )
         

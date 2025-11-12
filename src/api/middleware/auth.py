@@ -153,7 +153,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """
         try:
             # For development, allow bypass with special token
-            if self.env.ENVIRONMENT == "development" and token == "dev-bypass-token":
+            if self.env.environment == "development" and token == "dev-bypass-token":
                 return {
                     "user_id": "dev-user",
                     "username": "developer",
@@ -162,13 +162,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 }
             
             # Decode JWT token
-            if not self.env.JWT_SECRET:
+            if not self.env.jwt_secret:
                 logger.warning("JWT_SECRET not configured, rejecting all tokens")
                 return None
             
             payload = jwt.decode(
                 token,
-                self.env.JWT_SECRET,
+                self.env.jwt_secret,
                 algorithms=["HS256"]
             )
             

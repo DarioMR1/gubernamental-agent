@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Any
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..types import AgentState, SessionStatus, WorkflowStage
@@ -57,7 +57,7 @@ class AgentWorkflow:
         workflow.add_node("complete", self.nodes.completion_node)
         
         # Define the flow
-        workflow.add_edge(START, "parse_instruction")
+        workflow.set_entry_point("parse_instruction")
         
         # From instruction parsing to planning
         workflow.add_edge("parse_instruction", "create_plan")
@@ -112,7 +112,7 @@ class AgentWorkflow:
         
         # Error handling
         workflow.add_conditional_edges(
-            "error_handling",
+            "handle_error",
             self.conditions.should_retry_after_error,
             {
                 "retry": "execute_action",
