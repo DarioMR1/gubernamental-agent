@@ -48,14 +48,46 @@ def generate_tramite_checklist(
     db: Session = next(get_database())
     
     try:
-        # Get session data
+        # Get session data with auto-creation fallback
         session = db.query(TramiteSession).filter(
             TramiteSession.id == session_id
         ).first()
         
         if not session:
-            result["errors"].append(f"Session {session_id} not found")
-            return result
+            print(f"📋 CHECKLIST DEBUG: Session {session_id} not found, attempting auto-creation...")
+            
+            # Auto-create session if it doesn't exist (same as conversation_state_tool)
+            try:
+                from data.models import UserProfile
+                from domain_types.tramite_types import TramiteType, ConversationPhase
+                
+                new_session = TramiteSession(
+                    id=session_id,
+                    conversation_id=session_id,  # Use session_id as fallback for conversation_id
+                    tramite_type=TramiteType.SAT_RFC_INSCRIPCION_PF.value,
+                    current_phase=ConversationPhase.WELCOME.value,
+                    completion_percentage=0.0,
+                    is_completed=False
+                )
+                
+                db.add(new_session)
+                
+                # Create empty user profile
+                user_profile = UserProfile(
+                    tramite_session_id=session_id,
+                    nationality="mexicana"
+                )
+                
+                db.add(user_profile)
+                db.flush()  # Flush to get IDs before using them
+                
+                print(f"📋 CHECKLIST DEBUG: Auto-created session {session_id} with user_profile successfully")
+                session = new_session
+                
+            except Exception as auto_create_error:
+                print(f"❌ CHECKLIST ERROR: Failed to auto-create session: {auto_create_error}")
+                result["errors"].append(f"Session {session_id} not found and auto-creation failed: {str(auto_create_error)}")
+                return result
         
         # Generate checklist based on tramite type
         if tramite_type == TramiteType.SAT_RFC_INSCRIPCION_PF.value:
