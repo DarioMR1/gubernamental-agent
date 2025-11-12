@@ -1,13 +1,15 @@
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { ChatMessage } from "./chat-message";
+import { TypingIndicator } from "./typing-indicator";
 import { type Message } from "./chat-container";
 
 interface ChatMessageListProps {
   messages: Message[];
+  isTyping: boolean;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export function ChatMessageList({ messages, messagesEndRef }: ChatMessageListProps) {
+export function ChatMessageList({ messages, isTyping, messagesEndRef }: ChatMessageListProps) {
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-3xl mx-auto space-y-4">
@@ -25,6 +27,7 @@ export function ChatMessageList({ messages, messagesEndRef }: ChatMessageListPro
             <ChatMessage key={message.id} message={message} />
           ))
         )}
+        {isTyping && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
     </div>

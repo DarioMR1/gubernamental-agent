@@ -11,6 +11,7 @@ export interface Message {
 export function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -19,7 +20,7 @@ export function ChatContainer() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isTyping]);
 
   const handleSendMessage = (messageContent: string) => {
     if (!messageContent.trim()) return;
@@ -32,6 +33,7 @@ export function ChatContainer() {
     
     setMessages(prev => [...prev, newMessage]);
     setInput('');
+    setIsTyping(true);
     
     // Simulate assistant response
     setTimeout(() => {
@@ -41,6 +43,7 @@ export function ChatContainer() {
         sender: 'assistant'
       };
       setMessages(prev => [...prev, assistantMessage]);
+      setIsTyping(false);
     }, 1000);
   };
 
@@ -48,6 +51,7 @@ export function ChatContainer() {
     <div className="flex flex-col h-screen">
       <ChatMessageList 
         messages={messages} 
+        isTyping={isTyping}
         messagesEndRef={messagesEndRef} 
       />
       <ChatInput 
