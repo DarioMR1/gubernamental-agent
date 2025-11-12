@@ -148,12 +148,49 @@ async def delete_conversation(
 ):
     """Delete a conversation"""
     try:
+        from data.models import (
+            TramiteSession, UserProfile, ContactInfo, Address, 
+            ValidatedIdentifier, ValidatedDocument, ChecklistItem
+        )
         conversation_repo = ConversationRepository(db)
         
         conversation = conversation_repo.get_conversation(conversation_id)
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
         
+        # Get all tramite sessions for this conversation
+        tramite_sessions = db.query(TramiteSession).filter(
+            TramiteSession.conversation_id == conversation_id
+        ).all()
+        
+        # Delete all related data in the correct order (child to parent)
+        for session in tramite_sessions:
+            session_id = session.id
+            
+            # Delete user profile related data
+            user_profile = db.query(UserProfile).filter(
+                UserProfile.tramite_session_id == session_id
+            ).first()
+            
+            if user_profile:
+                profile_id = user_profile.id
+                
+                # Delete contact info, address, and validated identifiers
+                db.query(ContactInfo).filter(ContactInfo.user_profile_id == profile_id).delete()
+                db.query(Address).filter(Address.user_profile_id == profile_id).delete()
+                db.query(ValidatedIdentifier).filter(ValidatedIdentifier.user_profile_id == profile_id).delete()
+                
+                # Delete user profile
+                db.delete(user_profile)
+            
+            # Delete other session-related data
+            db.query(ValidatedDocument).filter(ValidatedDocument.tramite_session_id == session_id).delete()
+            db.query(ChecklistItem).filter(ChecklistItem.tramite_session_id == session_id).delete()
+            
+            # Finally delete the session
+            db.delete(session)
+        
+        # Now delete the conversation (messages will be deleted automatically due to cascade)
         db.delete(conversation)
         db.commit()
         
@@ -161,4 +198,5 @@ async def delete_conversation(
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

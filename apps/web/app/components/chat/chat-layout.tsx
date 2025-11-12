@@ -47,6 +47,14 @@ export function ChatLayout() {
       }
     } catch (error) {
       console.error('Error deleting conversation:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Error al eliminar la conversación. Por favor, inténtalo de nuevo.';
+      
+      // You can replace this with a toast notification system
+      alert(`Error: ${errorMessage}`);
     }
   };
 
