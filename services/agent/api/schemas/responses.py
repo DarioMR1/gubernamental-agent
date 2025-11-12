@@ -30,6 +30,8 @@ class ConversationDetailResponse(ConversationResponse):
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str
+    title_updated: bool = False
+    new_title: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

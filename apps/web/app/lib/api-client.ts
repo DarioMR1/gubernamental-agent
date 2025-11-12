@@ -28,6 +28,8 @@ export interface ChatRequest {
 export interface ChatResponse {
   response: string;
   conversation_id: string;
+  title_updated: boolean;
+  new_title?: string;
 }
 
 export interface ErrorResponse {

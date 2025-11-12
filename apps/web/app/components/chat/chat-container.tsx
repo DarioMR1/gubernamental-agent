@@ -120,24 +120,29 @@ export function ChatContainer({
         assistantMessage
       ]);
       
-      // If this was a new conversation, now notify about its creation
+      // Handle conversation updates
       if (isNew) {
+        // New conversation created
         const conversation: Conversation = {
           id: conversationId,
-          title: null,
+          title: response.title_updated ? response.new_title || null : null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
         onConversationCreated(conversation);
-      } else {
-        // Update existing conversation timestamp
-        if (activeConversation) {
-          const updatedConversation: Conversation = {
-            ...activeConversation,
-            updated_at: new Date().toISOString()
-          };
-          onConversationUpdated(updatedConversation);
-        }
+      } else if (activeConversation) {
+        // Existing conversation - always update timestamp, conditionally update title
+        const updatedConversation: Conversation = {
+          ...activeConversation,
+          title: response.title_updated ? response.new_title || activeConversation.title : activeConversation.title,
+          updated_at: new Date().toISOString()
+        };
+        onConversationUpdated(updatedConversation);
+      }
+      
+      // Log title changes for debugging (remove in production)
+      if (response.title_updated && response.new_title) {
+        console.log(`🏷️ Título actualizado: "${response.new_title}"`);
       }
       
       setIsTyping(false);

@@ -7,6 +7,7 @@ export function ChatLayout() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Load conversations on mount
   useEffect(() => {
@@ -80,9 +81,15 @@ export function ChatLayout() {
         onNewConversation={handleNewConversation}
         onDeleteConversation={handleDeleteConversation}
         isLoading={isLoadingConversations}
+        open={sidebarOpen}
+        onOpenChange={setSidebarOpen}
       />
       
-      <div className="flex-1">
+      <div 
+        className={`flex-1 transition-all duration-300 ease-in-out ${
+          sidebarOpen ? 'lg:ml-80' : ''
+        }`}
+      >
         <ChatContainer
           activeConversation={activeConversation}
           onConversationCreated={handleConversationCreated}

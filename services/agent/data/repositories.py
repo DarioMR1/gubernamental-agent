@@ -31,6 +31,24 @@ class ConversationRepository:
         return self.db.query(Conversation).order_by(
             desc(Conversation.updated_at)
         ).limit(limit).all()
+    
+    def update_conversation_title(self, conversation_id: str, title: str) -> Optional[Conversation]:
+        """Update conversation title"""
+        conversation = self.get_conversation(conversation_id)
+        if conversation:
+            conversation.title = title
+            self.db.commit()
+            self.db.refresh(conversation)
+        return conversation
+    
+    def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete a conversation"""
+        conversation = self.get_conversation(conversation_id)
+        if conversation:
+            self.db.delete(conversation)
+            self.db.commit()
+            return True
+        return False
 
 
 class MessageRepository:

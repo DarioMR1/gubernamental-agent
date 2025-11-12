@@ -114,9 +114,21 @@ async def send_message(
                 content=message_data["content"]
             )
         
+        # Check if title was updated
+        title_update_result = result.get("title_update_result", "")
+        title_updated = "Título actualizado exitosamente" in title_update_result
+        new_title = None
+        
+        if title_updated:
+            # Extract title from result message
+            if ": " in title_update_result:
+                new_title = title_update_result.split(": ", 1)[1]
+        
         return ChatResponse(
             response=result["assistant_response"],
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            title_updated=title_updated,
+            new_title=new_title
         )
         
     except HTTPException:

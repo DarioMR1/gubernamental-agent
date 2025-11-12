@@ -1,12 +1,5 @@
-import { useState } from "react";
-import { Plus, MessageSquare, Trash2 } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "~/components/ui/sheet";
+import { useState, useEffect } from "react";
+import { Plus, MessageSquare, Trash2, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
@@ -19,6 +12,8 @@ interface ConversationsSidebarProps {
   onNewConversation: () => void;
   onDeleteConversation: (conversationId: string) => void;
   isLoading?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function ConversationsSidebar({
@@ -28,8 +23,23 @@ export function ConversationsSidebar({
   onNewConversation,
   onDeleteConversation,
   isLoading = false,
+  open: controlledOpen,
+  onOpenChange,
 }: ConversationsSidebarProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [isLargeScreen, setIsLargeScreen] = useState(false);
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setOpen = onOpenChange || setInternalOpen;
+
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsLargeScreen(window.innerWidth >= 1024); // lg breakpoint
+    };
+
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -52,32 +62,59 @@ export function ConversationsSidebar({
   };
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
+    <>
+      {/* Trigger Button */}
+      {!open && (
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-4 left-4 z-50 backdrop-blur-md bg-white/60 border border-white/30 text-sky-700 hover:bg-white/70 hover:text-sky-800 transition-all"
+          className="fixed top-4 left-4 z-30 backdrop-blur-md bg-white/60 border border-white/30 text-sky-700 hover:bg-white/70 hover:text-sky-800 transition-all"
+          onClick={() => setOpen(!open)}
         >
           <MessageSquare className="h-5 w-5" />
         </Button>
-      </SheetTrigger>
-      
-      <SheetContent 
-        side="left" 
-        className="w-80 p-0 backdrop-blur-md bg-white/90 border-r border-white/30"
+      )}
+
+      {/* Mobile Overlay */}
+      {open && !isLargeScreen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Panel */}
+      <div
+        className={cn(
+          "fixed top-0 left-0 h-full w-80 z-40 backdrop-blur-md bg-white/90 border-r border-white/30",
+          "transform transition-transform duration-300 ease-in-out",
+          "flex flex-col",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
       >
-        <SheetHeader className="p-6 pb-4">
-          <SheetTitle className="text-sky-700 font-semibold text-lg">
+        {/* Header */}
+        <div className="p-6 pb-4 flex items-center justify-between">
+          <h2 className="text-sky-700 font-semibold text-lg">
             Conversaciones
-          </SheetTitle>
-        </SheetHeader>
+          </h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-sky-600 hover:text-sky-800"
+            onClick={() => setOpen(false)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
         
+        {/* New Conversation Button */}
         <div className="px-6 pb-4">
           <Button
             onClick={() => {
               onNewConversation();
-              setOpen(false);
+              if (!isLargeScreen) {
+                setOpen(false);
+              }
             }}
             className="w-full bg-sky-600 hover:bg-sky-700 text-white"
           >
@@ -86,6 +123,7 @@ export function ConversationsSidebar({
           </Button>
         </div>
 
+        {/* Conversations List */}
         <ScrollArea className="flex-1 px-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -109,7 +147,9 @@ export function ConversationsSidebar({
                   )}
                   onClick={() => {
                     onSelectConversation(conversation);
-                    setOpen(false);
+                    if (!isLargeScreen) {
+                      setOpen(false);
+                    }
                   }}
                 >
                   <div className="flex items-start justify-between">
@@ -139,7 +179,7 @@ export function ConversationsSidebar({
             </div>
           )}
         </ScrollArea>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </>
   );
 }
