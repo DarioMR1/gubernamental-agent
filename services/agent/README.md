@@ -1,54 +1,80 @@
-# Chat Agent API
+# Government Procedures Agent API
 
-Agente conversacional desarrollado con **LangGraph** y **FastAPI** que utiliza OpenAI para generar respuestas inteligentes y mantiene historial de conversaciones en SQLite.
+AI agent specialized in Mexican government procedures, specifically focused on SAT (Servicio de Administración Tributaria) tramites.
 
-## Características
+## Overview
 
-- 🤖 **LangGraph**: Workflow avanzado para manejo de conversaciones
-- ⚡ **FastAPI**: API REST moderna y rápida
-- 💾 **SQLite**: Persistencia de conversaciones y mensajes
-- 🧠 **OpenAI**: Generación de respuestas con GPT-4
-- 🔄 **Memoria Conversacional**: Mantiene contexto entre mensajes
-- 📝 **API Documentation**: Swagger UI automática
+This agent acts as an intelligent consultant for government procedures, helping citizens prepare and validate their documents before executing official tramites. Built with LangGraph's `create_react_agent` and specialized tools for document validation, CURP verification, and procedure guidance.
 
-## Estructura del Proyecto
+## Specialization: RFC Registration for Individuals
+
+The agent is currently specialized in **RFC Inscripción Persona Física** (RFC Registration for Physical Persons), providing:
+
+- **Conversational guidance** through the entire process
+- **CURP validation** with format checking and data extraction
+- **Document validation** (currently without OCR, to be implemented later)
+- **Intelligent checklist generation** based on user progress
+- **Real-time state management** using SQLite database
+- **Natural language explanations** of requirements and procedures
+
+## Architecture
+
+### ReAct Agent with Specialized Tools
+
+```
+LangGraph create_react_agent
+├── OpenAI GPT-4 (conversational responses)
+├── Specialized Tools:
+│   ├── manage_conversation_state
+│   ├── validate_official_identifier  
+│   ├── validate_government_document
+│   ├── generate_tramite_checklist
+│   └── explain_requirement
+└── SQLite Database (real state persistence)
+```
+
+## Project Structure
 
 ```
 services/agent/
-├── src/
-│   ├── main.py                    # FastAPI app entry point
-│   ├── dependencies.py            # Workflow precompilation & DI
-│   ├── config.py                  # Application settings
-│   │
-│   ├── api/                       # FastAPI HTTP layer
-│   │   ├── routes/
-│   │   │   ├── chat.py            # Chat endpoints
-│   │   │   └── health.py          # Health check
-│   │   └── schemas/               # Pydantic models
-│   │       ├── requests.py
-│   │       └── responses.py
-│   │
-│   ├── agents/                    # LangGraph AI layer
-│   │   ├── workflows/
-│   │   │   └── chat_agent.py      # Chat workflow
-│   │   ├── nodes/                 # Graph nodes
-│   │   │   ├── conversation.py    # LLM interaction
-│   │   │   └── memory.py          # Memory management
-│   │   └── prompts/               # Prompt templates
-│   │       └── chat_prompts.py
-│   │
-│   ├── data/                      # Data persistence
-│   │   ├── models.py              # SQLAlchemy models
-│   │   ├── database.py            # DB connection
-│   │   └── repositories.py        # Data access
-│   │
-│   └── utils/                     # Utilities
-│       ├── logging.py
-│       └── helpers.py
+├── main.py                        # FastAPI app entry point
+├── dependencies.py                # Workflow precompilation & DI
+├── config.py                      # Government procedures settings
 │
-├── tests/                         # Test suite
-├── .env.example                   # Environment template
-└── requirements.txt               # Dependencies
+├── types/                         # Government domain types
+│   ├── tramite_types.py          # TramiteType, DocumentType enums
+│   ├── validation_types.py       # ValidationStatus, ConfidenceLevel
+│   └── data_types.py             # ConversationState, UserProfile
+│
+├── api/                           # FastAPI HTTP layer
+│   ├── routes/
+│   │   ├── chat.py               # Chat endpoints (backward compatibility)
+│   │   ├── tramites.py           # Government procedures endpoints
+│   │   └── health.py             # Health check
+│   └── schemas/                  # Pydantic models
+│       ├── requests.py           # TramiteSession, CURP validation
+│       └── responses.py          # ValidationResponse, ChecklistResponse
+│
+├── agents/                        # LangGraph AI layer
+│   ├── workflows/
+│   │   └── chat_agent.py         # ReAct agent with government tools
+│   ├── tools/                    # Specialized government tools
+│   │   ├── conversation_state_tool.py
+│   │   ├── identifier_validation_tool.py
+│   │   ├── document_validation_tool.py
+│   │   ├── tramite_checklist_tool.py
+│   │   └── requirement_explanation_tool.py
+│   └── prompts/                  # Specialized prompts
+│       └── chat_prompts.py       # SAT consultant system prompt
+│
+├── data/                         # Data persistence
+│   ├── models.py                 # SQLAlchemy models (TramiteSession, UserProfile)
+│   ├── database.py               # DB connection
+│   └── repositories.py           # Data access
+│
+└── utils/                        # Utilities
+    ├── logging.py
+    └── helpers.py
 ```
 
 ## Instalación

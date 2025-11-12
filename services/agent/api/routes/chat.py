@@ -99,7 +99,7 @@ async def send_message(
         ]
         
         # Execute workflow
-        result = await workflow.ainvoke({
+        result = await workflow({
             "conversation_id": conversation_id,
             "user_message": request.message,
             "existing_messages": formatted_messages
