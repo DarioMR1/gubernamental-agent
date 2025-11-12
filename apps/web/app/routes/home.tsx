@@ -1,5 +1,5 @@
 import type { Route } from "./+types/home";
-import { ChatContainer } from "~/components/chat";
+import { ChatLayout } from "~/components/chat";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -9,5 +9,5 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Home() {
-  return <ChatContainer />;
+  return <ChatLayout />;
 }

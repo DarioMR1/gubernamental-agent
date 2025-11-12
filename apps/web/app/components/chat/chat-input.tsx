@@ -6,12 +6,15 @@ interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
   onSend: (message: string) => void;
+  disabled?: boolean;
 }
 
-export function ChatInput({ value, onChange, onSend }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSend, disabled = false }: ChatInputProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSend(value);
+    if (!disabled && value.trim()) {
+      onSend(value);
+    }
   };
 
   return (
@@ -22,13 +25,15 @@ export function ChatInput({ value, onChange, onSend }: ChatInputProps) {
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Escribe tu mensaje..."
-            className="flex-1 px-6 py-4 h-12 rounded-full backdrop-blur-md bg-white/60 border border-white/30 text-sky-700 placeholder:text-sky-500 focus-visible:border-sky-300 focus-visible:bg-white/70 transition-all focus-visible:ring-sky-300/50"
+            placeholder={disabled ? "Enviando mensaje..." : "Escribe tu mensaje..."}
+            disabled={disabled}
+            className="flex-1 px-6 py-4 h-12 rounded-full backdrop-blur-md bg-white/60 border border-white/30 text-sky-700 placeholder:text-sky-500 focus-visible:border-sky-300 focus-visible:bg-white/70 transition-all focus-visible:ring-sky-300/50 disabled:opacity-50"
           />
           <Button
             type="submit"
             size="icon"
-            className="w-12 h-12 bg-sky-600 hover:bg-sky-700 text-white rounded-full"
+            disabled={disabled || !value.trim()}
+            className="w-12 h-12 bg-sky-600 hover:bg-sky-700 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
             ↑
           </Button>

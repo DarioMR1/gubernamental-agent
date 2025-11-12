@@ -1,38 +1,39 @@
+// Types based on the Chat Agent API
 export interface Message {
   id: number;
+  role: 'user' | 'assistant';
   content: string;
-  sender: 'user' | 'assistant';
-  timestamp: Date;
-}
-
-export interface CreateSessionRequest {
-  instruction: string;
-  priority?: number;
-}
-
-export interface SessionResponse {
-  id: string;
-  instruction: string;
-  status: 'active' | 'completed' | 'failed' | 'requires_approval' | 'aborted' | 'pending' | 'running' | 'paused';
-  stage?: string;
-  priority: number;
-  progress_percentage: number;
   created_at: string;
-  updated_at?: string;
-  completed_at?: string;
-  metadata?: Record<string, any>;
 }
 
-export interface ApiResponse<T> {
-  data: T;
-  success: boolean;
-  message?: string;
-  error?: {
-    code: string;
-    message: string;
-    details?: any;
-    request_id?: string;
-  };
+export interface Conversation {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: Message[];
+}
+
+export interface CreateConversationRequest {
+  title?: string;
+}
+
+export interface ChatRequest {
+  message: string;
+}
+
+export interface ChatResponse {
+  response: string;
+  conversation_id: string;
+}
+
+export interface ErrorResponse {
+  error: string;
+  message: string;
+  details?: string;
 }
 
 class ApiClient {
@@ -49,7 +50,7 @@ class ApiClient {
   private async request<T>(
     endpoint: string, 
     options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
+  ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     
     const response = await fetch(url, {
@@ -60,47 +61,71 @@ class ApiClient {
       },
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error?.message || `HTTP ${response.status}`);
+      const errorData: ErrorResponse = await response.json().catch(() => ({
+        error: 'HTTP_ERROR',
+        message: `HTTP ${response.status}: ${response.statusText}`
+      }));
+      throw new Error(errorData.message || `HTTP ${response.status}`);
     }
 
-    return data;
+    return response.json();
   }
 
-  async createSession(instruction: string): Promise<SessionResponse> {
-    const response = await this.request<SessionResponse>('/v1/sessions', {
+  // Conversation management
+  async createConversation(title?: string): Promise<Conversation> {
+    return this.request<Conversation>('/api/v1/chat/conversations', {
       method: 'POST',
-      body: JSON.stringify({
-        instruction,
-        priority: 3
-      } as CreateSessionRequest),
+      body: JSON.stringify({ title } as CreateConversationRequest),
     });
-
-    return response.data;
   }
 
-  async getSession(sessionId: string): Promise<SessionResponse> {
-    const response = await this.request<SessionResponse>(`/v1/sessions/${sessionId}`);
-    return response.data;
+  async getConversations(limit: number = 20): Promise<Conversation[]> {
+    return this.request<Conversation[]>(`/api/v1/chat/conversations?limit=${limit}`);
   }
 
-  async getSessionHistory(sessionId: string): Promise<any[]> {
-    const response = await this.request<any[]>(`/v1/sessions/${sessionId}/history`);
-    return response.data;
+  async getConversation(conversationId: string): Promise<ConversationDetail> {
+    return this.request<ConversationDetail>(`/api/v1/chat/conversations/${conversationId}`);
   }
 
-  async abortSession(sessionId: string): Promise<boolean> {
-    const response = await this.request<{ success: boolean }>(`/v1/sessions/${sessionId}/abort`, {
+  async deleteConversation(conversationId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(`/api/v1/chat/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Chat functionality
+  async sendMessage(conversationId: string, message: string): Promise<ChatResponse> {
+    return this.request<ChatResponse>(`/api/v1/chat/conversations/${conversationId}/messages`, {
       method: 'POST',
+      body: JSON.stringify({ message } as ChatRequest),
     });
-    return response.data.success;
   }
 
-  createEventStream(sessionId: string): EventSource {
-    return new EventSource(`${this.baseUrl}/v1/sessions/${sessionId}/stream`);
+  // Health check
+  async healthCheck(): Promise<{ status: string; timestamp: string; service: string }> {
+    return this.request<{ status: string; timestamp: string; service: string }>('/health/');
   }
+
+  // Format message for UI
+  formatMessageForUI(message: Message, conversationId: string): UIMessage {
+    return {
+      id: message.id,
+      content: message.content,
+      sender: message.role,
+      timestamp: new Date(message.created_at),
+      conversationId
+    };
+  }
+}
+
+// UI-specific message interface
+export interface UIMessage {
+  id: number;
+  content: string;
+  sender: 'user' | 'assistant';
+  timestamp: Date;
+  conversationId?: string;
 }
 
 export const apiClient = new ApiClient();

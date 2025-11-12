@@ -1,0 +1,26 @@
+# FastAPI and web server
+fastapi
+uvicorn[standard]
+
+# LangGraph and LangChain
+langgraph
+langchain
+langchain-openai
+langchain-core
+
+# Database
+sqlalchemy
+
+# Data validation and settings
+pydantic
+pydantic-settings
+
+# Async support
+aiofiles
+
+# Development and utilities
+python-dotenv
+python-multipart
+
+# Type hints support
+typing-extensions

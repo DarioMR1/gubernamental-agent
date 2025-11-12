@@ -1,23 +1,25 @@
 import { useState, useEffect, useRef } from "react";
 import { ChatMessageList } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
-import { apiClient, type SessionResponse } from "~/lib/api-client";
+import { apiClient, type UIMessage, type Conversation } from "~/lib/api-client";
 
-export interface Message {
-  id: number;
-  content: string;
-  sender: 'user' | 'assistant';
-  timestamp: Date;
-  sessionId?: string;
+interface ChatContainerProps {
+  activeConversation: Conversation | null;
+  onConversationCreated: (conversation: Conversation) => void;
+  onConversationUpdated: (conversation: Conversation) => void;
 }
 
-export function ChatContainer() {
-  const [messages, setMessages] = useState<Message[]>([]);
+export function ChatContainer({
+  activeConversation,
+  onConversationCreated,
+  onConversationUpdated,
+}: ChatContainerProps) {
+  const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [currentSession, setCurrentSession] = useState<SessionResponse | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const previousConversationIdRef = useRef<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -27,83 +29,61 @@ export function ChatContainer() {
     scrollToBottom();
   }, [messages, isTyping]);
 
+  // Load messages when active conversation changes
   useEffect(() => {
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+    const currentConversationId = activeConversation?.id || null;
+    const previousConversationId = previousConversationIdRef.current;
+    
+    if (activeConversation) {
+      // Only load messages if this is a different conversation than before
+      // This prevents loading when a new conversation is created during message flow
+      if (currentConversationId !== previousConversationId && previousConversationId !== null) {
+        loadConversationMessages(activeConversation.id);
       }
-    };
-  }, []);
+    } else {
+      setMessages([]);
+    }
+    
+    previousConversationIdRef.current = currentConversationId;
+  }, [activeConversation]);
 
-  const connectToSessionStream = (sessionId: string) => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+  const loadConversationMessages = async (conversationId: string) => {
+    try {
+      setIsLoadingMessages(true);
+      const conversation = await apiClient.getConversation(conversationId);
+      
+      const uiMessages = conversation.messages.map(msg => 
+        apiClient.formatMessageForUI(msg, conversationId)
+      );
+      
+      setMessages(uiMessages);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+      setMessages([]);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  };
+
+  const ensureConversation = async (): Promise<{ id: string; isNew: boolean }> => {
+    if (activeConversation) {
+      return { id: activeConversation.id, isNew: false };
     }
 
-    const eventSource = apiClient.createEventStream(sessionId);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'status') {
-          const statusMessage: Message = {
-            id: Date.now(),
-            content: `Procesando tu solicitud... Estado: ${data.data.status}`,
-            sender: 'assistant',
-            timestamp: new Date(),
-            sessionId
-          };
-          setMessages(prev => [...prev, statusMessage]);
-        } else if (data.type === 'update') {
-          const statusMessage: Message = {
-            id: Date.now(),
-            content: `Estado: ${data.data.status} - Progreso: ${Math.round(data.data.progress || 0)}%${data.data.stage ? ` - ${data.data.stage}` : ''}`,
-            sender: 'assistant',
-            timestamp: new Date(),
-            sessionId
-          };
-          setMessages(prev => [...prev, statusMessage]);
-        } else if (data.type === 'complete') {
-          setIsTyping(false);
-          const completionMessage: Message = {
-            id: Date.now(),
-            content: `Tarea completada con estado: ${data.data.final_status}`,
-            sender: 'assistant',
-            timestamp: new Date(),
-            sessionId
-          };
-          setMessages(prev => [...prev, completionMessage]);
-          eventSource.close();
-        } else if (data.type === 'error') {
-          setIsTyping(false);
-          const errorMessage: Message = {
-            id: Date.now(),
-            content: `Error: ${data.data.message}`,
-            sender: 'assistant',
-            timestamp: new Date(),
-            sessionId
-          };
-          setMessages(prev => [...prev, errorMessage]);
-          eventSource.close();
-        }
-      } catch (error) {
-        console.error('Error parsing SSE data:', error);
-      }
-    };
-
-    eventSource.onerror = (error) => {
-      console.error('EventSource error:', error);
-      setIsTyping(false);
-      eventSource.close();
-    };
+    try {
+      const conversation = await apiClient.createConversation();
+      // Don't notify about creation yet - wait until after message is sent
+      return { id: conversation.id, isNew: true };
+    } catch (error) {
+      throw new Error(`No se pudo crear la conversación: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
   };
 
   const handleSendMessage = async (messageContent: string) => {
     if (!messageContent.trim()) return;
     
-    const userMessage: Message = {
+    // Add user message to UI immediately
+    const userMessage: UIMessage = {
       id: Date.now(),
       content: messageContent,
       sender: 'user',
@@ -115,25 +95,58 @@ export function ChatContainer() {
     setIsTyping(true);
 
     try {
-      const session = await apiClient.createSession(messageContent);
-      setCurrentSession(session);
+      // Ensure we have a conversation
+      const { id: conversationId, isNew } = await ensureConversation();
 
-      const assistantMessage: Message = {
+      // Send message to API
+      const response = await apiClient.sendMessage(conversationId, messageContent);
+
+      // Add assistant response
+      const assistantMessage: UIMessage = {
         id: Date.now() + 1,
-        content: `Perfecto! He creado una nueva sesión (${session.id.substring(0, 8)}...) para procesar tu solicitud. Te mantendré informado del progreso.`,
+        content: response.response,
         sender: 'assistant',
         timestamp: new Date(),
-        sessionId: session.id
+        conversationId: response.conversation_id
       };
       
-      setMessages(prev => [...prev, assistantMessage]);
+      // Update user message to include conversation ID and add assistant response
+      setMessages(prev => [
+        ...prev.map(msg => 
+          msg.id === userMessage.id 
+            ? { ...msg, conversationId: response.conversation_id }
+            : msg
+        ),
+        assistantMessage
+      ]);
       
-      connectToSessionStream(session.id);
+      // If this was a new conversation, now notify about its creation
+      if (isNew) {
+        const conversation: Conversation = {
+          id: conversationId,
+          title: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        onConversationCreated(conversation);
+      } else {
+        // Update existing conversation timestamp
+        if (activeConversation) {
+          const updatedConversation: Conversation = {
+            ...activeConversation,
+            updated_at: new Date().toISOString()
+          };
+          onConversationUpdated(updatedConversation);
+        }
+      }
+      
+      setIsTyping(false);
+
     } catch (error) {
       setIsTyping(false);
-      const errorMessage: Message = {
+      const errorMessage: UIMessage = {
         id: Date.now() + 2,
-        content: `Error: ${error instanceof Error ? error.message : 'No se pudo conectar con el agente'}`,
+        content: `Error: ${error instanceof Error ? error.message : 'No se pudo enviar el mensaje'}`,
         sender: 'assistant',
         timestamp: new Date()
       };
@@ -141,18 +154,46 @@ export function ChatContainer() {
     }
   };
 
+  const getWelcomeTitle = () => {
+    if (activeConversation) {
+      return activeConversation.title || 'Conversación';
+    }
+    return 'Chat Assistant';
+  };
+
+  const getWelcomeMessage = () => {
+    if (activeConversation) {
+      return 'Continúa tu conversación';
+    }
+    return '¿En qué puedo ayudarte hoy?';
+  };
+
   return (
     <div className="flex flex-col h-screen">
-      <ChatMessageList 
-        messages={messages} 
-        isTyping={isTyping}
-        messagesEndRef={messagesEndRef} 
-      />
-      <ChatInput 
-        value={input}
-        onChange={setInput}
-        onSend={handleSendMessage}
-      />
+      {isLoadingMessages ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600 mx-auto mb-4"></div>
+            <p className="text-sky-600">Cargando conversación...</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <ChatMessageList 
+            messages={messages} 
+            isTyping={isTyping}
+            messagesEndRef={messagesEndRef}
+            welcomeTitle={getWelcomeTitle()}
+            welcomeMessage={getWelcomeMessage()}
+          />
+          <ChatInput 
+            value={input}
+            onChange={setInput}
+            onSend={handleSendMessage}
+            disabled={isTyping}
+          />
+        </>
+      )}
     </div>
   );
 }

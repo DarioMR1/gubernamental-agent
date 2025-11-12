@@ -1,8 +1,8 @@
 import { cn } from "~/lib/utils";
-import { type Message } from "./chat-container";
+import { type UIMessage } from "~/lib/api-client";
 
 interface ChatMessageProps {
-  message: Message;
+  message: UIMessage;
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {
