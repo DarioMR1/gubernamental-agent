@@ -22,6 +22,16 @@ asyncpg==0.29.0
 # HTTP client
 httpx==0.26.0
 
+# FastAPI and ASGI server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Authentication and security
+PyJWT==2.8.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
 # Image processing for screenshots
 Pillow==10.2.0
 

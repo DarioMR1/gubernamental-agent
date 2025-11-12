@@ -42,6 +42,25 @@ class Environment(BaseSettings):
     max_concurrent_sessions: int = Field(5, env="MAX_CONCURRENT_SESSIONS")
     session_timeout_minutes: int = Field(60, env="SESSION_TIMEOUT_MINUTES")
     
+    # API Configuration
+    api_host: str = Field("0.0.0.0", env="API_HOST")
+    api_port: int = Field(8000, env="API_PORT")
+    api_workers: int = Field(1, env="API_WORKERS")
+    environment: str = Field("development", env="ENVIRONMENT")
+    
+    # CORS Configuration
+    cors_origins: list = Field(["http://localhost:3000", "http://localhost:3001"], env="CORS_ORIGINS")
+    allowed_hosts: Optional[list] = Field(None, env="ALLOWED_HOSTS")
+    
+    # Authentication Configuration
+    jwt_secret: Optional[str] = Field(None, env="JWT_SECRET")
+    jwt_algorithm: str = Field("HS256", env="JWT_ALGORITHM")
+    jwt_expiration_hours: int = Field(24, env="JWT_EXPIRATION_HOURS")
+    
+    # API Rate Limiting
+    api_rate_limit_requests: int = Field(100, env="API_RATE_LIMIT_REQUESTS")
+    api_rate_limit_window_seconds: int = Field(60, env="API_RATE_LIMIT_WINDOW_SECONDS")
+    
     # Monitoring and Observability
     enable_metrics: bool = Field(True, env="ENABLE_METRICS")
     metrics_port: int = Field(8080, env="METRICS_PORT")
@@ -87,6 +106,32 @@ class Environment(BaseSettings):
         if v.lower() not in valid_formats:
             raise ValueError(f"Log format must be one of: {valid_formats}")
         return v.lower()
+    
+    @validator("environment")
+    def validate_environment(cls, v: str) -> str:
+        """Validate environment."""
+        valid_environments = ["development", "staging", "production"]
+        if v.lower() not in valid_environments:
+            raise ValueError(f"Environment must be one of: {valid_environments}")
+        return v.lower()
+    
+    @validator("cors_origins")
+    def validate_cors_origins(cls, v):
+        """Validate CORS origins."""
+        if isinstance(v, str):
+            # If single string, split by comma
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v or []
+    
+    @validator("allowed_hosts")
+    def validate_allowed_hosts(cls, v):
+        """Validate allowed hosts."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # If single string, split by comma
+            return [host.strip() for host in v.split(",") if host.strip()]
+        return v
     
     def validate_api_key(self) -> None:
         """Validate that the appropriate API key is set."""
