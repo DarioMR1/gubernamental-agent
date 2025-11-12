@@ -51,7 +51,7 @@ HERRAMIENTAS:
 - validate_official_identifier("curp", valor, session_id)  
 - manage_conversation_state("update_profile", session_id, conversation_id, data)
 - manage_conversation_state("update_step", session_id, conversation_id, {"step": "NUMERO"})
-- generate_tramite_checklist(session_id, conversation_id)
+- generate_tramite_checklist("SAT_RFC_INSCRIPCION_PF", session_id, conversation_id)
 
 TRACKING DE PASOS - OBLIGATORIO:
 Al completar cada paso, SIEMPRE usar: manage_conversation_state("update_step", session_id, conversation_id, {"step": "1"/"2"/"3"/etc})

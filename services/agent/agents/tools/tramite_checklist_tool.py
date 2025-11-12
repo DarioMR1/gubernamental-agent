@@ -3,8 +3,8 @@ from typing import Dict, Any, List
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from data.database import get_database
-from data.models import TramiteSession, ChecklistItem
-from domain_types.tramite_types import TramiteType, TramiteModality
+from data.models import TramiteSession, ChecklistItem, UserProfile
+from domain_types.tramite_types import TramiteType, TramiteModality, ConversationPhase
 from domain_types.validation_types import RequirementStatus
 
 
@@ -12,6 +12,7 @@ from domain_types.validation_types import RequirementStatus
 def generate_tramite_checklist(
     tramite_type: str,
     session_id: str,
+    conversation_id: str = None,
     current_documents: List[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
@@ -19,7 +20,8 @@ def generate_tramite_checklist(
     
     Args:
         tramite_type: Type of tramite (SAT_RFC_INSCRIPCION_PF, etc.)
-        session_id: Tramite session ID  
+        session_id: Tramite session ID
+        conversation_id: Associated conversation ID (optional)
         current_documents: List of currently validated documents
         
     Returns:
@@ -58,12 +60,10 @@ def generate_tramite_checklist(
             
             # Auto-create session if it doesn't exist (same as conversation_state_tool)
             try:
-                from data.models import UserProfile
-                from domain_types.tramite_types import TramiteType, ConversationPhase
                 
                 new_session = TramiteSession(
                     id=session_id,
-                    conversation_id=session_id,  # Use session_id as fallback for conversation_id
+                    conversation_id=conversation_id or session_id,  # Use conversation_id if provided, else session_id
                     tramite_type=TramiteType.SAT_RFC_INSCRIPCION_PF.value,
                     current_phase=ConversationPhase.WELCOME.value,
                     completion_percentage=0.0,
