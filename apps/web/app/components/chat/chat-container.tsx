@@ -122,13 +122,13 @@ export function ChatContainer({
               
               assistantResponseContent = event.data.content;
               
-              setMessages(prev => [
-                ...prev.map(msg => 
+              setMessages((prev: UIMessage[]): UIMessage[] => [
+                ...prev.map((msg: UIMessage): UIMessage => 
                   msg.id === userMessage.id 
                     ? { ...msg, conversationId: conversationId }
                     : msg
                 ),
-                assistantMessage
+                ...(assistantMessage ? [assistantMessage] : [])
               ]);
             } else {
               // Subsequent tokens - update existing message
@@ -144,12 +144,14 @@ export function ChatContainer({
           } else if (event.event === 'final_response') {
             // Ensure we capture the final response if streaming tokens weren't complete
             const finalContent = event.data?.response || assistantResponseContent;
+            const showAddressForm = event.data?.show_address_form || false;
+            
             if (finalContent && assistantMessage) {
               assistantResponseContent = finalContent;
               setMessages(prev => 
                 prev.map(msg => 
                   msg.id === assistantMessage!.id 
-                    ? { ...msg, content: assistantResponseContent }
+                    ? { ...msg, content: assistantResponseContent, showAddressForm }
                     : msg
                 )
               );
@@ -161,16 +163,17 @@ export function ChatContainer({
                 content: finalContent,
                 sender: 'assistant',
                 timestamp: new Date(),
-                conversationId: conversationId
+                conversationId: conversationId,
+                showAddressForm
               };
               
-              setMessages(prev => [
-                ...prev.map(msg => 
+              setMessages((prev: UIMessage[]): UIMessage[] => [
+                ...prev.map((msg: UIMessage): UIMessage => 
                   msg.id === userMessage.id 
                     ? { ...msg, conversationId: conversationId }
                     : msg
                 ),
-                assistantMessage
+                ...(assistantMessage ? [assistantMessage] : [])
               ]);
             }
           } else if (event.event === 'error') {
@@ -217,13 +220,13 @@ export function ChatContainer({
                 conversationId: conversationId
               };
               
-              setMessages(prev => [
-                ...prev.map(msg => 
+              setMessages((prev: UIMessage[]): UIMessage[] => [
+                ...prev.map((msg: UIMessage): UIMessage => 
                   msg.id === userMessage.id 
                     ? { ...msg, conversationId: conversationId }
                     : msg
                 ),
-                assistantMessage
+                ...(assistantMessage ? [assistantMessage] : [])
               ]);
             }
           }
@@ -307,6 +310,7 @@ export function ChatContainer({
             welcomeTitle={getWelcomeTitle()}
             welcomeMessage={getWelcomeMessage()}
             isWaitingForFirstToken={isWaitingForFirstToken}
+            onSendMessage={handleSendMessage}
           />
           <ChatInput 
             value={input}

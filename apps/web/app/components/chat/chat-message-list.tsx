@@ -9,6 +9,7 @@ interface ChatMessageListProps {
   welcomeTitle?: string;
   welcomeMessage?: string;
   isWaitingForFirstToken?: boolean;
+  onSendMessage?: (message: string) => void;
 }
 
 export function ChatMessageList({ 
@@ -16,7 +17,8 @@ export function ChatMessageList({
   messagesEndRef, 
   welcomeTitle = "Chat Assistant",
   welcomeMessage = "¿En qué puedo ayudarte hoy?",
-  isWaitingForFirstToken = false
+  isWaitingForFirstToken = false,
+  onSendMessage
 }: ChatMessageListProps) {
   return (
     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
@@ -32,7 +34,11 @@ export function ChatMessageList({
           </div>
         ) : (
           messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
+            <ChatMessage 
+              key={message.id} 
+              message={message} 
+              onSendMessage={onSendMessage}
+            />
           ))
         )}
         {isWaitingForFirstToken && <TypingIndicator />}

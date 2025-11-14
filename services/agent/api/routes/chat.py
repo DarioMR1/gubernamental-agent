@@ -274,7 +274,6 @@ async def stream_message(
             
             messages_to_save = []
             assistant_response = ""
-            tool_call_messages = []  # Track tool call messages separately
             
             # Get the agent and prepare messages correctly
             from agents.workflows.chat_agent import create_government_tramites_agent
@@ -481,54 +480,12 @@ CURRENT_STEP: {current_step} (continue from this step)"""
                     yield f"data: {json.dumps({'event': 'reasoning_end', 'data': {'name': event_name}})}\n\n"
                     
                 elif event_kind == "on_tool_start":
-                    tool_input = make_serializable(event_data.get("input", {}))
-                    
-                    # Send tool call as a separate message
-                    tool_start_message = f"🔧 Utilizando herramienta: **{event_name}**"
-                    tool_message_data = {
-                        'event': 'tool_message', 
-                        'data': {
-                            'message_type': 'tool_call',
-                            'content': tool_start_message,
-                            'tool_name': event_name,
-                            'tool_input': tool_input,
-                            'timestamp': datetime.now().isoformat()
-                        }
-                    }
-                    
-                    # Add to list of messages to save
-                    tool_call_messages.append({
-                        'role': 'assistant',
-                        'content': tool_start_message,
-                        'message_type': 'tool_call'
-                    })
-                    
-                    yield f"data: {json.dumps(tool_message_data)}\n\n"
+                    # Tool calls are now transparent - no messages sent to client
+                    pass
                     
                 elif event_kind == "on_tool_end":
-                    tool_output = make_serializable(event_data.get("output", {}))
-                    
-                    # Send tool completion as a separate message
-                    tool_end_message = f"✅ **{event_name}** completado"
-                    tool_complete_data = {
-                        'event': 'tool_message',
-                        'data': {
-                            'message_type': 'tool_complete',
-                            'content': tool_end_message,
-                            'tool_name': event_name,
-                            'tool_output': tool_output,
-                            'timestamp': datetime.now().isoformat()
-                        }
-                    }
-                    
-                    # Add to list of messages to save
-                    tool_call_messages.append({
-                        'role': 'assistant',
-                        'content': tool_end_message,
-                        'message_type': 'tool_complete'
-                    })
-                    
-                    yield f"data: {json.dumps(tool_complete_data)}\n\n"
+                    # Tool completion is now transparent - no messages sent to client
+                    pass
                     
                 elif event_kind == "on_chain_start":
                     if event_name == "Agent":
@@ -551,9 +508,11 @@ CURRENT_STEP: {current_step} (continue from this step)"""
                                         # Check if this is an AI/Assistant message
                                         if (hasattr(msg, 'type') and msg.type in ['ai', 'assistant']) or \
                                            type(msg).__name__ in ['AIMessage', 'AssistantMessage']:
-                                            if msg.content and not assistant_response:
-                                                assistant_response = msg.content
-                                            break
+                                            if msg.content and msg.content.strip():
+                                                # Always update assistant_response with the latest AI message
+                                                assistant_response = msg.content.strip()
+                                                print(f"📝 AGENT DEBUG: Captured final response from agent: {assistant_response[:100]}...")
+                                                break
                         except Exception as e:
                             print(f"Warning: Could not extract final response from agent output: {e}")
                         
@@ -562,14 +521,28 @@ CURRENT_STEP: {current_step} (continue from this step)"""
             
             # Extract final response from agent result if not captured from streaming
             if not assistant_response or assistant_response.strip() == "":
-                print("Warning: No assistant response captured from streaming, using fallback")
-                assistant_response = "Hola, soy tu consultor especializado en trámites del SAT. ¿En qué puedo ayudarte hoy?"
+                print("Warning: No assistant response captured from streaming, trying alternative extraction...")
+                
+                # Try to get the response from the final agent state
+                try:
+                    # Execute the agent one more time to get clean output if streaming failed
+                    fallback_result = await base_agent.ainvoke(enhanced_input)
+                    if isinstance(fallback_result, dict) and 'messages' in fallback_result:
+                        for msg in reversed(fallback_result['messages']):
+                            if hasattr(msg, 'content') and hasattr(msg, 'type') and msg.type in ['ai', 'assistant']:
+                                if msg.content and msg.content.strip():
+                                    assistant_response = msg.content.strip()
+                                    print(f"✅ Extracted fallback response: {assistant_response[:100]}...")
+                                    break
+                except Exception as fallback_error:
+                    print(f"Fallback extraction failed: {fallback_error}")
+                
+                # Final fallback if nothing works
+                if not assistant_response or assistant_response.strip() == "":
+                    assistant_response = "He recibido tu información. ¿Podrías repetir tu consulta para continuar con el trámite?"
             
-            # Prepare messages to save - include user message, tool calls, and assistant response
+            # Prepare messages to save - only user message and assistant response (no tool calls)
             messages_to_save = [{"role": "user", "content": request.message}]
-            
-            # Add tool call messages in chronological order
-            messages_to_save.extend(tool_call_messages)
             
             # Add final assistant response
             if assistant_response:
@@ -583,8 +556,54 @@ CURRENT_STEP: {current_step} (continue from this step)"""
                     content=message_data["content"]
                 )
             
+            # Check if we need to show address form (step 4 or 5 - domicilio fiscal)
+            should_show_address_form = False
+            try:
+                from agents.tools.conversation_state_tool import manage_conversation_state
+                state_result = manage_conversation_state.invoke({
+                    "action": "get_state",
+                    "session_id": session_id,
+                    "conversation_id": conversation_id
+                })
+                if state_result.get('success') and state_result.get('data'):
+                    current_phase = state_result['data'].get('current_phase', '')
+                    user_profile = state_result['data'].get('user_profile', {})
+                    
+                    # Check if address is already completed
+                    address_completed = (user_profile.get('address') and 
+                                       user_profile['address'].get('street') and
+                                       user_profile['address'].get('state'))
+                    
+                    # Extract step number for comparison
+                    step_num = None
+                    if current_phase.startswith('STEP_'):
+                        try:
+                            step_num = int(current_phase.replace('STEP_', ''))
+                        except:
+                            step_num = None
+                    
+                    # Only show form if:
+                    # 1. We're at STEP_4 (not STEP_5 or higher) AND
+                    # 2. Address is not yet completed AND  
+                    # 3. Response mentions address-related keywords
+                    if (current_phase == 'STEP_4' and 
+                        not address_completed and
+                        ('domicilio fiscal' in assistant_response.lower() or
+                         'dirección fiscal' in assistant_response.lower() or
+                         'por favor, completa tu domicilio' in assistant_response.lower())):
+                        should_show_address_form = True
+                        print(f"🏠 ADDRESS FORM: Will show form for step {current_phase} (address not completed)")
+                    elif address_completed:
+                        print(f"🏠 ADDRESS FORM: Skipping form for step {current_phase} (address already completed)")
+                    elif step_num and step_num >= 5:
+                        print(f"🏠 ADDRESS FORM: Skipping form for step {current_phase} (already past address step)")
+                    else:
+                        print(f"🏠 ADDRESS FORM: No form needed for step {current_phase}")
+            except Exception as e:
+                print(f"Warning: Could not check if address form should be shown: {e}")
+            
             # Send final response
-            yield f"data: {json.dumps({'event': 'final_response', 'data': {'response': assistant_response, 'conversation_id': conversation_id}})}\n\n"
+            yield f"data: {json.dumps({'event': 'final_response', 'data': {'response': assistant_response, 'conversation_id': conversation_id, 'show_address_form': should_show_address_form}})}\n\n"
             yield f"data: {json.dumps({'event': 'debug_end'})}\n\n"
             
         except Exception as e:

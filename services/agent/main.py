@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import chat, health, tramites
+from api.routes import chat, health, tramites, dipomex
 from dependencies import get_compiled_workflows
 from data.database import create_tables
 from utils.logging import setup_logging
@@ -50,6 +50,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(tramites.router, prefix="/api/v1/tramites", tags=["tramites"])
+app.include_router(dipomex.router, prefix="/api/v1/dipomex", tags=["dipomex"])
 
 
 @app.get("/")
@@ -63,7 +64,8 @@ async def root():
             "docs": "/docs",
             "health": "/health",
             "chat": "/api/v1/chat",
-            "tramites": "/api/v1/tramites"
+            "tramites": "/api/v1/tramites",
+            "dipomex": "/api/v1/dipomex"
         },
         "specialization": "Mexican Government Procedures (SAT)",
         "supported_tramites": [

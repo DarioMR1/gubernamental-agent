@@ -166,7 +166,7 @@ export function ConversationsSidebar({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-sky-600 hover:text-red-600 hover:bg-red-50"
-                      onClick={(e) => {
+                      onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
                         onDeleteConversation(conversation.id);
                       }}

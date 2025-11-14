@@ -267,6 +267,7 @@ export interface UIMessage {
   sender: 'user' | 'assistant';
   timestamp: Date;
   conversationId?: string;
+  showAddressForm?: boolean;
 }
 
 export const apiClient = new ApiClient();

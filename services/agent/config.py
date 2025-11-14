@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     document_validation_enabled: bool = True
     name_similarity_threshold: float = 0.9
     
+    # DIPOMEX API Configuration
+    dipomex_api_url: str = ""
+    dipomex_api_key: str = ""
+    
     class Config:
         env_file = ".env"
 
