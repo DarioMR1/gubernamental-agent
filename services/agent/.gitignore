@@ -188,3 +188,7 @@ logs/
 
 # Runtime files
 *.pid
+
+# OCI API Keys - Security sensitive files
+*.pem
+a01658815@tec.mx-*.pem
