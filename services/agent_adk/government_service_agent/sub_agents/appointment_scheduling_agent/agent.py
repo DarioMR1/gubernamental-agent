@@ -1,352 +1,349 @@
 from datetime import datetime, timedelta
-import random
-import os
-from typing import Optional
 from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
+import random
+from typing import List, Dict
 
 
-def schedule_appointment(tool_context: ToolContext, service_type: str, preferred_date: Optional[str] = None) -> dict:
+def search_sat_locations_by_postal_code(tool_context: ToolContext, postal_code: str) -> dict:
     """
-    Schedules a government appointment for the specified service.
+    Busca oficinas del SAT cercanas basándose en el código postal del usuario.
     
     Args:
-        tool_context: The tool context for accessing session state
-        service_type: Type of government service (sat, passport, license, etc.)
-        preferred_date: Optional preferred date for the appointment
+        tool_context: Contexto de la herramienta para acceso al estado de sesión
+        postal_code: Código postal para buscar oficinas cercanas
     """
+    # Simulamos búsqueda de oficinas SAT basado en código postal
+    # En implementación real, esto consultaría una API o base de datos del SAT
+    
+    sat_offices = {
+        "06000": [  # Centro CDMX
+            {
+                "id": "sat_centro_01",
+                "name": "SAT Centro Histórico",
+                "address": "Av. Hidalgo 77, Centro Histórico, Cuauhtémoc, 06300 Ciudad de México",
+                "phone": "55-8526-8526",
+                "services": ["RFC", "Firma electrónica", "Facturación", "Devoluciones"],
+                "distance_km": 2.1
+            },
+            {
+                "id": "sat_centro_02", 
+                "name": "SAT Doctores",
+                "address": "Dr. Río de la Loza 300, Doctores, Cuauhtémoc, 06720 Ciudad de México",
+                "phone": "55-8526-8527",
+                "services": ["RFC", "Firma electrónica", "Facturación"],
+                "distance_km": 3.5
+            }
+        ],
+        "01000": [  # Álvaro Obregón
+            {
+                "id": "sat_alvaro_01",
+                "name": "SAT San Ángel",
+                "address": "Av. Revolución 1245, San Ángel, Álvaro Obregón, 01000 Ciudad de México",
+                "phone": "55-8526-8530",
+                "services": ["RFC", "Firma electrónica", "Facturación", "Devoluciones"],
+                "distance_km": 1.8
+            }
+        ]
+    }
+    
+    # Obtener oficinas para el código postal (o usar ubicaciones por defecto)
+    locations = sat_offices.get(postal_code, [
+        {
+            "id": "sat_default_01",
+            "name": "SAT Servicio Principal",
+            "address": f"Oficina del SAT más cercana a CP {postal_code}",
+            "phone": "55-8526-8500",
+            "services": ["RFC", "Firma electrónica", "Facturación"],
+            "distance_km": 5.0
+        }
+    ])
+    
+    # Guardar ubicaciones encontradas en el estado
+    tool_context.state["sat_locations"] = locations
+    
+    # Actualizar historial
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Validate required data
-    required_fields = ["full_name", "curp", "address"]
-    missing_fields = [field for field in required_fields if field not in tool_context.state or not tool_context.state[field]]
-    
-    if missing_fields:
-        return {
-            "status": "error",
-            "message": f"No se puede agendar cita. Faltan datos: {', '.join(missing_fields)}",
-            "missing_fields": missing_fields
-        }
-    
-    # Service configurations
-    service_config = {
-        "sat": {
-            "name": "SAT - Servicio de Administración Tributaria",
-            "office": "Oficina SAT Centro Histórico",
-            "address": "Av. Hidalgo 77, Centro, 06300 Ciudad de México",
-            "duration": "45 minutos",
-            "requirements": ["INE vigente", "Comprobante de domicilio", "CURP"]
-        },
-        "passport": {
-            "name": "Pasaporte Mexicano",
-            "office": "Oficina SRE Tlatelolco", 
-            "address": "Plaza de las Tres Culturas s/n, Tlatelolco, 06995 Ciudad de México",
-            "duration": "30 minutos",
-            "requirements": ["Acta de nacimiento certificada", "INE vigente", "CURP", "Comprobante de pago"]
-        },
-        "license": {
-            "name": "Licencia de Conducir",
-            "office": "Módulo de Licencias Benito Juárez",
-            "address": "Av. División del Norte 2333, Portales, 03300 Ciudad de México", 
-            "duration": "60 minutos",
-            "requirements": ["INE vigente", "Comprobante de domicilio", "CURP", "Examen médico"]
-        },
-        "birth_certificate": {
-            "name": "Acta de Nacimiento",
-            "office": "Registro Civil Central",
-            "address": "Dr. Río de la Loza 295, Doctores, 06720 Ciudad de México",
-            "duration": "20 minutos", 
-            "requirements": ["INE vigente", "Datos de nacimiento"]
-        }
-    }
-    
-    if service_type not in service_config:
-        return {
-            "status": "error",
-            "message": f"Servicio '{service_type}' no disponible. Servicios disponibles: {', '.join(service_config.keys())}"
-        }
-    
-    # Generate appointment details
-    service_info = service_config[service_type]
-    
-    # Generate appointment date (between 3-30 days from now)
-    base_date = datetime.now() + timedelta(days=random.randint(3, 30))
-    appointment_date = base_date.strftime("%Y-%m-%d")
-    appointment_time = f"{random.randint(9, 16):02d}:{random.choice(['00', '30'])}"
-    
-    # Generate appointment reference
-    appointment_ref = f"{service_type.upper()}-{random.randint(100000, 999999)}"
-    
-    # Create appointment data
-    appointment_data = {
-        "reference": appointment_ref,
-        "service": service_info["name"],
-        "office": service_info["office"],
-        "address": service_info["address"],
-        "date": appointment_date,
-        "time": appointment_time,
-        "duration": service_info["duration"],
-        "requirements": service_info["requirements"],
-        "citizen_data": {
-            "name": tool_context.state.get("full_name"),
-            "curp": tool_context.state.get("curp"),
-            "address": tool_context.state.get("address")
-        },
-        "status": "confirmed",
-        "created_at": current_time
-    }
-    
-    # Update state with new appointment
-    current_appointments = tool_context.state.get("appointments", [])
-    new_appointments = current_appointments.copy()
-    new_appointments.append(appointment_data)
-    tool_context.state["appointments"] = new_appointments
-    
-    # Update interaction history
     current_history = tool_context.state.get("interaction_history", [])
     new_history = current_history.copy()
     new_history.append({
-        "action": "appointment_scheduled",
-        "service": service_type,
-        "reference": appointment_ref,
-        "date": appointment_date,
-        "time": appointment_time,
+        "action": "search_sat_locations", 
+        "postal_code": postal_code,
+        "locations_found": len(locations),
         "timestamp": current_time
     })
     tool_context.state["interaction_history"] = new_history
     
     return {
         "status": "success",
-        "message": f"Cita agendada exitosamente para {service_info['name']}",
-        "appointment": appointment_data
+        "postal_code": postal_code,
+        "locations": locations,
+        "total_found": len(locations),
+        "message": f"Se encontraron {len(locations)} oficinas del SAT cerca del código postal {postal_code}"
     }
 
 
-def get_available_services(tool_context: ToolContext) -> dict:
+def get_available_appointments(tool_context: ToolContext, office_id: str, service_type: str = "RFC") -> dict:
     """
-    Returns list of available government services for appointment scheduling.
+    Consulta horarios disponibles para una oficina específica del SAT.
+    
+    Args:
+        tool_context: Contexto de la herramienta
+        office_id: ID de la oficina del SAT
+        service_type: Tipo de servicio (RFC, Firma electrónica, etc.)
     """
-    services = {
-        "sat": {
-            "name": "SAT - Trámites Fiscales",
-            "description": "RFC, constancia de situación fiscal, certificado de sello digital",
-            "estimated_time": "45 minutos"
-        },
-        "passport": {
-            "name": "Pasaporte Mexicano", 
-            "description": "Tramitación de pasaporte mexicano para viajes internacionales",
-            "estimated_time": "30 minutos"
-        },
-        "license": {
-            "name": "Licencia de Conducir",
-            "description": "Licencia de conducir nueva, renovación o reposición",
-            "estimated_time": "60 minutos"
-        },
-        "birth_certificate": {
-            "name": "Acta de Nacimiento",
-            "description": "Copia certificada de acta de nacimiento",
-            "estimated_time": "20 minutos"
-        }
-    }
+    # Simular disponibilidad de citas para los próximos 15 días
+    available_slots = []
+    start_date = datetime.now() + timedelta(days=2)  # Citas disponibles desde pasado mañana
+    
+    for day_offset in range(15):
+        current_date = start_date + timedelta(days=day_offset)
+        # Saltar fines de semana
+        if current_date.weekday() < 5:  # 0=Lunes, 4=Viernes
+            # Horarios disponibles: 9:00-15:00
+            time_slots = ["09:00", "10:00", "11:00", "12:00", "14:00", "15:00"]
+            # Simular que algunos horarios ya están ocupados
+            available_times = random.sample(time_slots, random.randint(2, 5))
+            
+            for time_slot in sorted(available_times):
+                available_slots.append({
+                    "date": current_date.strftime("%Y-%m-%d"),
+                    "time": time_slot,
+                    "slot_id": f"{office_id}_{current_date.strftime('%Y%m%d')}_{time_slot.replace(':', '')}",
+                    "day_name": current_date.strftime("%A"),
+                    "formatted_date": current_date.strftime("%d de %B")
+                })
+    
+    # Guardar slots disponibles en el estado
+    tool_context.state["available_appointments"] = available_slots
+    tool_context.state["selected_office_id"] = office_id
+    tool_context.state["selected_service_type"] = service_type
+    
+    # Actualizar historial
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_history = tool_context.state.get("interaction_history", [])
+    new_history = current_history.copy()
+    new_history.append({
+        "action": "get_available_appointments",
+        "office_id": office_id,
+        "service_type": service_type,
+        "slots_found": len(available_slots),
+        "timestamp": current_time
+    })
+    tool_context.state["interaction_history"] = new_history
     
     return {
         "status": "success",
-        "services": services,
-        "message": "Servicios disponibles para agendar cita"
+        "office_id": office_id,
+        "service_type": service_type,
+        "available_slots": available_slots[:10],  # Mostrar primeros 10 slots
+        "total_slots": len(available_slots),
+        "message": f"Se encontraron {len(available_slots)} horarios disponibles para {service_type}"
     }
 
 
-def get_appointments(tool_context: ToolContext) -> dict:
+def schedule_sat_appointment(tool_context: ToolContext, office_id: str, slot_id: str, service_type: str) -> dict:
     """
-    Returns user's scheduled appointments.
-    """
-    appointments = tool_context.state.get("appointments", [])
-    
-    if not appointments:
-        return {
-            "status": "success",
-            "appointments": [],
-            "message": "No tienes citas agendadas actualmente"
-        }
-    
-    return {
-        "status": "success", 
-        "appointments": appointments,
-        "message": f"Tienes {len(appointments)} cita(s) agendada(s)"
-    }
-
-
-def send_appointment_email(tool_context: ToolContext, email: str, appointment_reference: str) -> dict:
-    """
-    Sends appointment confirmation email using Resend.
+    Agenda una cita en el SAT con la información personal del usuario.
     
     Args:
-        tool_context: The tool context for accessing session state
-        email: Email address to send the confirmation to
-        appointment_reference: Reference number of the appointment to send
+        tool_context: Contexto de la herramienta
+        office_id: ID de la oficina del SAT
+        slot_id: ID del horario seleccionado
+        service_type: Tipo de servicio solicitado
     """
-    try:
-        import resend
-    except ImportError:
+    # Verificar que tengamos todos los datos personales requeridos
+    required_fields = ["full_name", "curp", "address", "postal_code"]
+    missing_fields = []
+    
+    for field in required_fields:
+        if field not in tool_context.state or not tool_context.state[field]:
+            missing_fields.append(field)
+    
+    if missing_fields:
         return {
             "status": "error",
-            "message": "Resend library not installed. Please install with: pip install resend"
+            "message": f"Faltan datos personales requeridos: {', '.join(missing_fields)}",
+            "missing_fields": missing_fields
         }
     
-    # Get appointment data
-    appointments = tool_context.state.get("appointments", [])
-    appointment = None
-    
-    for apt in appointments:
-        if apt.get("reference") == appointment_reference:
-            appointment = apt
+    # Buscar el slot específico
+    available_slots = tool_context.state.get("available_appointments", [])
+    selected_slot = None
+    for slot in available_slots:
+        if slot["slot_id"] == slot_id:
+            selected_slot = slot
             break
     
-    if not appointment:
-        return {
-            "status": "error",
-            "message": f"No se encontró la cita con referencia: {appointment_reference}"
-        }
-    
-    # Get user data
-    user_name = tool_context.state.get("full_name", "Usuario")
-    
-    # Configure Resend API key from environment
-    resend_api_key = os.getenv("RESEND_API_KEY")
-    if not resend_api_key:
+    if not selected_slot:
         return {
             "status": "error", 
-            "message": "RESEND_API_KEY no está configurada en las variables de entorno"
+            "message": "El horario seleccionado no está disponible"
         }
     
-    resend.api_key = resend_api_key
+    # Buscar información de la oficina
+    sat_locations = tool_context.state.get("sat_locations", [])
+    selected_office = None
+    for office in sat_locations:
+        if office["id"] == office_id:
+            selected_office = office
+            break
     
-    # Create email content
-    service_name = appointment["service"]
-    date = appointment["date"]
-    time = appointment["time"]
-    office = appointment["office"]
-    address = appointment["address"]
-    requirements = appointment.get("requirements", [])
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Confirmación de Cita - {service_name}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background-color: #2563eb; color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
-            .content {{ background-color: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px; }}
-            .info-box {{ background-color: white; padding: 20px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #2563eb; }}
-            .requirements {{ background-color: #fef3c7; padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; }}
-            .footer {{ text-align: center; margin-top: 30px; color: #6b7280; font-size: 14px; }}
-            h1 {{ margin: 0; }}
-            h2 {{ color: #2563eb; margin-top: 0; }}
-            ul {{ margin: 0; padding-left: 20px; }}
-            .reference {{ font-family: monospace; background: #e5e7eb; padding: 4px 8px; border-radius: 4px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>🏛️ Confirmación de Cita Gubernamental</h1>
-                <p>Tu cita ha sido agendada exitosamente</p>
-            </div>
-            
-            <div class="content">
-                <h2>Hola {user_name},</h2>
-                <p>Te confirmamos que tu cita para <strong>{service_name}</strong> ha sido agendada con éxito.</p>
-                
-                <div class="info-box">
-                    <h3>📋 Detalles de tu Cita</h3>
-                    <p><strong>Servicio:</strong> {service_name}</p>
-                    <p><strong>Referencia:</strong> <span class="reference">{appointment_reference}</span></p>
-                    <p><strong>📅 Fecha:</strong> {date}</p>
-                    <p><strong>🕐 Hora:</strong> {time}</p>
-                    <p><strong>📍 Lugar:</strong> {office}</p>
-                    <p><strong>📍 Dirección:</strong> {address}</p>
-                </div>
-                
-                <div class="requirements">
-                    <h3>📄 Documentos Requeridos</h3>
-                    <p>Por favor lleva contigo los siguientes documentos:</p>
-                    <ul>
-    """
-    
-    for req in requirements:
-        html_content += f"<li>{req}</li>"
-    
-    html_content += f"""
-                    </ul>
-                </div>
-                
-                <div class="info-box">
-                    <h3>ℹ️ Información Importante</h3>
-                    <ul>
-                        <li>Llega <strong>15 minutos antes</strong> de tu cita</li>
-                        <li>Lleva todos los documentos requeridos</li>
-                        <li>Tu referencia es: <span class="reference">{appointment_reference}</span></li>
-                        <li>Si necesitas cancelar o reprogramar, comunícate con anticipación</li>
-                    </ul>
-                </div>
-                
-                <div class="footer">
-                    <p>Este correo fue generado automáticamente por el Sistema de Trámites Gubernamentales</p>
-                    <p>Esta es una notificación automática. Para consultas, contacta directamente a la oficina correspondiente</p>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    
-    try:
-        # Send email using Resend
-        from_email = os.getenv("RESEND_FROM_EMAIL", "Trámites Gubernamentales <notifications@diperion.com>")
-        params = {
-            "from": from_email,
-            "to": [email],
-            "subject": f"Confirmación de Cita - {service_name} ({appointment_reference})",
-            "html": html_content,
-        }
-        
-        result = resend.Emails.send(params)
-        
-        # Update state to record that email was sent
-        current_history = tool_context.state.get("interaction_history", [])
-        new_history = current_history.copy()
-        new_history.append({
-            "action": "email_sent",
-            "email": email,
-            "appointment_reference": appointment_reference,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        tool_context.state["interaction_history"] = new_history
-        
-        return {
-            "status": "success",
-            "message": f"Confirmación de cita enviada exitosamente a {email}",
-            "email_id": result.get("id"),
-            "appointment_reference": appointment_reference
-        }
-        
-    except Exception as e:
+    if not selected_office:
         return {
             "status": "error",
-            "message": f"Error al enviar el correo: {str(e)}"
+            "message": "Oficina no encontrada"
         }
+    
+    # Generar número de confirmación
+    confirmation_number = f"SAT{random.randint(100000, 999999)}"
+    
+    # Crear objeto de cita
+    appointment = {
+        "confirmation_number": confirmation_number,
+        "service_type": service_type,
+        "date": selected_slot["date"],
+        "time": selected_slot["time"],
+        "office": selected_office,
+        "user_info": {
+            "full_name": tool_context.state["full_name"],
+            "curp": tool_context.state["curp"], 
+            "address": tool_context.state["address"],
+            "postal_code": tool_context.state["postal_code"],
+            "phone": tool_context.state.get("phone", ""),
+            "email": tool_context.state.get("email", "")
+        },
+        "status": "confirmed",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Guardar cita en el estado
+    current_appointments = tool_context.state.get("appointments", [])
+    updated_appointments = current_appointments.copy()
+    updated_appointments.append(appointment)
+    tool_context.state["appointments"] = updated_appointments
+    
+    # Actualizar historial
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_history = tool_context.state.get("interaction_history", [])
+    new_history = current_history.copy()
+    new_history.append({
+        "action": "schedule_appointment",
+        "confirmation_number": confirmation_number,
+        "service_type": service_type,
+        "date": selected_slot["date"],
+        "time": selected_slot["time"],
+        "office_name": selected_office["name"],
+        "timestamp": current_time
+    })
+    tool_context.state["interaction_history"] = new_history
+    
+    return {
+        "status": "success",
+        "appointment": appointment,
+        "confirmation_number": confirmation_number,
+        "message": f"¡Cita agendada exitosamente! Número de confirmación: {confirmation_number}"
+    }
 
 
-# Create the appointment scheduling agent
+def get_appointment_requirements(tool_context: ToolContext, service_type: str) -> dict:
+    """
+    Proporciona los requisitos específicos para diferentes tipos de trámites del SAT.
+    
+    Args:
+        tool_context: Contexto de la herramienta
+        service_type: Tipo de servicio (RFC, Firma electrónica, etc.)
+    """
+    requirements = {
+        "RFC": {
+            "documents": [
+                "Acta de nacimiento original",
+                "Identificación oficial vigente (INE/Pasaporte)",
+                "Comprobante de domicilio no mayor a 3 meses"
+            ],
+            "additional_info": [
+                "Si eres trabajador dependiente, necesitas tu CFDI de nómina",
+                "Si tienes actividad empresarial, preparar descripción de la actividad"
+            ],
+            "duration": "30-45 minutos",
+            "cost": "Gratuito"
+        },
+        "Firma electrónica": {
+            "documents": [
+                "RFC activo",
+                "Identificación oficial vigente (INE/Pasaporte)",
+                "Comprobante de domicilio no mayor a 3 meses",
+                "Dispositivo USB o CD"
+            ],
+            "additional_info": [
+                "La firma electrónica tiene vigencia de 4 años",
+                "Necesario para facturación electrónica"
+            ],
+            "duration": "20-30 minutos",
+            "cost": "Gratuito"
+        },
+        "Facturación": {
+            "documents": [
+                "RFC activo",
+                "Firma electrónica vigente",
+                "Identificación oficial"
+            ],
+            "additional_info": [
+                "Asesoría sobre uso del portal del SAT",
+                "Configuración inicial de facturación"
+            ],
+            "duration": "15-20 minutos", 
+            "cost": "Gratuito"
+        },
+        "Devoluciones": {
+            "documents": [
+                "RFC activo",
+                "Firma electrónica vigente", 
+                "Declaración anual presentada",
+                "Comprobantes fiscales originales"
+            ],
+            "additional_info": [
+                "Solo se pueden solicitar devoluciones de los últimos 5 años",
+                "El proceso puede tomar de 15 a 40 días hábiles"
+            ],
+            "duration": "45-60 minutos",
+            "cost": "Gratuito"
+        }
+    }
+    
+    service_requirements = requirements.get(service_type, {
+        "documents": ["Consultar en oficina"],
+        "additional_info": ["Información no disponible para este servicio"],
+        "duration": "Variable",
+        "cost": "Consultar en oficina"
+    })
+    
+    # Actualizar historial
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_history = tool_context.state.get("interaction_history", [])
+    new_history = current_history.copy()
+    new_history.append({
+        "action": "get_requirements",
+        "service_type": service_type,
+        "timestamp": current_time
+    })
+    tool_context.state["interaction_history"] = new_history
+    
+    return {
+        "status": "success",
+        "service_type": service_type,
+        "requirements": service_requirements,
+        "message": f"Requisitos para {service_type} obtenidos exitosamente"
+    }
+
+
+# Crear el agente de agendamiento de citas
 appointment_scheduling_agent = Agent(
     name="appointment_scheduling_agent",
     model="gemini-2.0-flash",
-    description="Agent specialized in scheduling government service appointments",
+    description="Agent specialized in scheduling government appointments, particularly for SAT services",
     instruction="""
-    Eres un agente especializado en agendar citas para trámites gubernamentales en México.
+    Eres un agente especializado en agendar citas para servicios gubernamentales, especialmente del SAT (Servicio de Administración Tributaria).
 
     <user_info>
     Nombre: {full_name}
@@ -358,95 +355,194 @@ appointment_scheduling_agent = Agent(
     </user_info>
 
     <appointments>
-    Citas agendadas: {appointments}
+    {appointments}
     </appointments>
 
     <interaction_history>
     {interaction_history}
     </interaction_history>
 
-    Tu función principal:
-    1. Verificar que el usuario tenga los datos personales mínimos requeridos
-    2. Mostrar servicios disponibles para agendar citas
-    3. Agendar citas para trámites gubernamentales
-    4. Consultar citas ya agendadas
-
-    SERVICIOS DISPONIBLES:
-
-    1. **SAT (sat)** - Trámites Fiscales
-       - RFC, constancia de situación fiscal
-       - Certificado de sello digital
-       - Duración: 45 minutos
-
-    2. **Pasaporte (passport)** - Pasaporte Mexicano
-       - Tramitación de pasaporte para viajes internacionales  
-       - Duración: 30 minutos
-
-    3. **Licencia (license)** - Licencia de Conducir
-       - Nueva, renovación o reposición
-       - Duración: 60 minutos
-
-    4. **Acta de Nacimiento (birth_certificate)**
-       - Copia certificada
-       - Duración: 20 minutos
-
-    PROCESO DE AGENDAMIENTO:
-
-    1. **Verificación de datos:**
-       - SIEMPRE verifica que el usuario tenga: nombre completo, CURP y dirección
-       - Si faltan datos, envía al usuario con el agente de extracción de documentos
-
-    2. **Mostrar opciones:**
-       - Usa get_available_services() para mostrar servicios disponibles
-       - Explica qué incluye cada servicio
-
-    3. **Agendar cita:**
-       - Cuando el usuario elija un servicio, usa schedule_appointment()
-       - Proporciona toda la información de la cita agendada
-       - Incluye: fecha, hora, lugar, dirección, requisitos
-
-    4. **Consultar citas:**
-       - Usa get_appointments() para mostrar citas existentes
-
-    5. **Envío de confirmación por correo:**
-       - Después de agendar exitosamente, SIEMPRE pregunta si desea recibir confirmación por correo
-       - Si acepta, solicita su dirección de correo electrónico
-       - Usa send_appointment_email() con el email y la referencia de la cita
-       - Confirma el envío exitoso
-
-    DATOS MÍNIMOS REQUERIDOS:
-    - Nombre completo
-    - CURP
-    - Dirección
-
-    IMPORTANTE:
-    - NO puedes agendar citas sin los datos mínimos requeridos
-    - Proporciona información completa de cada cita (lugar, hora, requisitos)
-    - Sé claro sobre qué documentos debe llevar el ciudadano
-    - Las citas son simuladas pero deben parecer realistas
-
-    EJEMPLO DE RESPUESTA EXITOSA:
-    "✅ ¡Cita agendada exitosamente!
+    ## TU FUNCIÓN PRINCIPAL
     
-    📋 **Detalles de tu cita:**
-    - Servicio: SAT - Servicio de Administración Tributaria
-    - Referencia: SAT-123456
-    - Fecha: 2024-12-15
-    - Hora: 10:00 AM
-    - Duración: 45 minutos
-    - Lugar: Oficina SAT Centro Histórico
-    - Dirección: Av. Hidalgo 77, Centro, 06300 Ciudad de México
+    Ayudar a los usuarios a agendar citas para trámites del SAT de manera eficiente y completa.
+
+    ## SERVICIOS DEL SAT DISPONIBLES
     
-    📄 **Documentos requeridos:**
-    - INE vigente
-    - Comprobante de domicilio
-    - CURP
+    1. **RFC (Registro Federal de Contribuyentes)**
+       - Inscripción por primera vez
+       - Actualización de datos
+       - Reactivación de RFC suspendido
+
+    2. **Firma Electrónica (FIEL)**
+       - Tramite inicial
+       - Renovación 
+       - Revocación
+
+    3. **Facturación Electrónica**
+       - Asesoría sobre facturación
+       - Configuración inicial
+       - Resolución de problemas
+
+    4. **Devoluciones**
+       - Solicitud de devolución de impuestos
+       - Seguimiento de devoluciones
+       - Aclaraciones
+
+    ## FLUJO DE AGENDAMIENTO
+
+    ### Paso 1: Verificar Datos Personales
+    ANTES de hacer cualquier cosa, verifica que el usuario tenga:
+    - ✅ Nombre completo
+    - ✅ CURP
+    - ✅ Dirección
+    - ✅ Código postal
     
-    👤 **Datos registrados:**
-    - Nombre: Juan Pérez García
-    - CURP: PEGJ850515HDFLRN09
-    
-    📧 ¿Te gustaría recibir la confirmación de tu cita por correo electrónico?"
+    Si falta algún dato, solicítalo antes de proceder.
+
+    ### Paso 2: Consultar Servicios y Ubicaciones
+    1. Pregunta qué tipo de servicio necesita
+    2. Usa `search_sat_locations_by_postal_code()` para encontrar oficinas cercanas
+    3. Presenta las opciones de ubicación disponibles con:
+       - Nombre de la oficina
+       - Dirección completa
+       - Teléfono
+       - Servicios disponibles
+       - Distancia aproximada
+
+    ### Paso 3: Mostrar Horarios Disponibles
+    1. Una vez que el usuario seleccione una oficina
+    2. Usa `get_available_appointments()` para consultar horarios
+    3. Presenta los horarios en formato claro:
+       - Fecha (día de la semana, fecha)
+       - Hora disponible
+       - Duración estimada
+
+    ### Paso 4: Proporcionar Requisitos
+    1. Usa `get_appointment_requirements()` para el servicio solicitado
+    2. Muestra claramente:
+       - Documentos requeridos
+       - Información adicional importante
+       - Duración estimada del trámite
+       - Costo (si aplica)
+
+    ### Paso 5: Confirmar y Agendar
+    1. Resume toda la información:
+       - Servicio solicitado
+       - Oficina seleccionada
+       - Fecha y hora elegida
+       - Datos del usuario
+    2. Confirma con el usuario
+    3. Usa `schedule_sat_appointment()` para crear la cita
+    4. Proporciona el número de confirmación
+
+    ## INSTRUCCIONES IMPORTANTES
+
+    ### ✅ **Verificación Obligatoria**
+    SIEMPRE verifica que el usuario tenga todos los datos personales completos ANTES de buscar oficinas o horarios.
+
+    ### 📍 **Búsqueda de Oficinas**
+    - Usa el código postal del usuario para encontrar oficinas cercanas
+    - Presenta TODAS las opciones disponibles
+    - Incluye distancia y servicios disponibles en cada oficina
+
+    ### ⏰ **Gestión de Horarios**
+    - Muestra horarios en orden cronológico
+    - Indica claramente día de la semana y fecha
+    - Menciona duración estimada del trámite
+
+    ### 📋 **Requisitos Detallados**
+    - SIEMPRE proporciona la lista completa de requisitos
+    - Explica documentos necesarios en términos claros
+    - Menciona información adicional importante
+
+    ### ✨ **Experiencia del Usuario**
+    - Sé claro y organizado en tus respuestas
+    - Usa formato de lista para información importante
+    - Confirma cada paso antes de proceder
+    - Celebra cuando se complete el agendamiento
+
+    ## EJEMPLOS DE RESPUESTAS
+
+    **Inicio de conversación:**
+    "¡Perfecto! Veo que ya tienes todos tus datos personales completos. Ahora puedo ayudarte a agendar tu cita del SAT.
+
+    **¿Qué tipo de servicio necesitas?**
+    🔹 RFC (Registro Federal de Contribuyentes)
+    🔹 Firma Electrónica (FIEL)
+    🔹 Facturación Electrónica
+    🔹 Devoluciones de Impuestos
+
+    Una vez que me digas qué servicio necesitas, buscaré las oficinas más cercanas a tu código postal ({postal_code})."
+
+    **Después de buscar oficinas:**
+    "He encontrado [NÚMERO] oficinas del SAT cerca de tu código postal:
+
+    📍 **Oficina 1: [Nombre]**
+    - Dirección: [Dirección completa]
+    - Teléfono: [Teléfono]
+    - Distancia: [DISTANCIA] km
+    - Servicios: [Lista de servicios]
+
+    📍 **Oficina 2: [Nombre]**
+    [Misma información...]
+
+    ¿Cuál oficina prefieres para tu cita?"
+
+    **Mostrando horarios:**
+    "Perfecto! Para la oficina [Nombre], estos son los horarios disponibles para [Servicio]:
+
+    📅 **Esta semana:**
+    - Jueves 28 Nov - 10:00 AM, 2:00 PM
+    - Viernes 29 Nov - 9:00 AM, 11:00 AM, 3:00 PM
+
+    📅 **Próxima semana:**
+    - Lunes 2 Dic - 9:00 AM, 12:00 PM, 2:00 PM
+    [...]
+
+    ¿Qué horario te conviene más?"
+
+    **Antes de agendar:**
+    "📋 **REQUISITOS PARA [TIPO_SERVICIO]:**
+
+    **Documentos necesarios:**
+    - [Lista de documentos]
+
+    **Información adicional:**
+    - [Información importante]
+
+    **Duración:** [Tiempo estimado]
+    **Costo:** [Costo o gratuito]
+
+    **📝 RESUMEN DE TU CITA:**
+    - Servicio: [Servicio]
+    - Oficina: [Nombre y dirección]
+    - Fecha: [Fecha]
+    - Hora: [Hora]
+    - Nombre: [Nombre del usuario]
+    - CURP: [CURP_USUARIO]
+
+    ¿Confirmas que quieres agendar esta cita?"
+
+    ## HERRAMIENTAS DISPONIBLES
+
+    1. `search_sat_locations_by_postal_code()` - Buscar oficinas cercanas
+    2. `get_available_appointments()` - Consultar horarios disponibles  
+    3. `schedule_sat_appointment()` - Agendar la cita
+    4. `get_appointment_requirements()` - Obtener requisitos del servicio
+
+    ## MANEJO DE ERRORES
+
+    - Si no hay horarios disponibles, ofrece oficinas alternativas
+    - Si falla el agendamiento, explica el error claramente
+    - Si el usuario no tiene datos completos, explica qué falta
+
+    RECUERDA: Tu objetivo es lograr que el usuario tenga una cita agendada exitosamente con toda la información necesaria para su trámite del SAT.
     """,
-    tools=[schedule_appointment, get_available_services, get_appointments, send_appointment_email],
+    tools=[
+        search_sat_locations_by_postal_code,
+        get_available_appointments, 
+        schedule_sat_appointment,
+        get_appointment_requirements
+    ],
+    sub_agents=[],
 )

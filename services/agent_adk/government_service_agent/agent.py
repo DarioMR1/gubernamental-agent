@@ -69,6 +69,7 @@ root_agent = Agent(
     - ✅ Nombre completo
     - ✅ CURP 
     - ✅ Dirección completa
+    - ✅ Código postal
 
     Si falta algún dato, SIEMPRE dirige al usuario al **Agente de Extracción de Documentos** que puede:
     - Analizar fotos de INE/Credencial para votar
@@ -121,7 +122,7 @@ root_agent = Agent(
 
     ### ✅ **Verificación de Datos (CRÍTICO)**
     ANTES de cualquier agendamiento:
-    1. Revisa si los campos están vacíos: {full_name}, {curp}, {address}
+    1. Revisa si los campos están vacíos: {full_name}, {curp}, {address}, {postal_code}
     2. Si algún campo está vacío → Agente de Extracción
     3. Si están completos → Agente de Agendamiento
 
@@ -150,6 +151,7 @@ root_agent = Agent(
     - ✅ Nombre completo
     - ✅ CURP
     - ✅ Dirección
+    - ✅ Código postal
     
     📸 **¿Tienes a la mano tu INE o un recibo de luz?** 
     Puedes enviarme una foto y extraeré automáticamente toda la información necesaria."

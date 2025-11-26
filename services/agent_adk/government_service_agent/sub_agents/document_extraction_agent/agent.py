@@ -65,18 +65,63 @@ def extract_personal_data(tool_context: ToolContext, document_type: str, extract
     }
 
 
+def update_manual_data(tool_context: ToolContext, field_name: str, field_value: str) -> dict:
+    """
+    Updates a specific field with manually provided data.
+    
+    Args:
+        tool_context: The tool context for accessing session state
+        field_name: Name of the field to update (full_name, curp, address, postal_code, phone, email)
+        field_value: Value to set for the field
+    """
+    valid_fields = ["full_name", "curp", "address", "postal_code", "phone", "email"]
+    
+    if field_name not in valid_fields:
+        return {
+            "status": "error",
+            "message": f"Campo inválido. Campos permitidos: {', '.join(valid_fields)}"
+        }
+    
+    # Update the field
+    tool_context.state[field_name] = field_value
+    
+    # Update interaction history
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_history = tool_context.state.get("interaction_history", [])
+    new_history = current_history.copy()
+    new_history.append({
+        "action": "manual_data_update",
+        "field": field_name,
+        "value": field_value,
+        "timestamp": current_time
+    })
+    tool_context.state["interaction_history"] = new_history
+    
+    return {
+        "status": "success",
+        "message": f"Campo '{field_name}' actualizado exitosamente con: {field_value}",
+        "field": field_name,
+        "value": field_value
+    }
+
+
 def validate_required_data(tool_context: ToolContext) -> dict:
     """
     Validates that all required personal data is available for government procedures.
     
-    Required fields: full_name, curp, address
+    Required fields: full_name, curp, address, postal_code
     """
-    required_fields = ["full_name", "curp", "address"]
+    required_fields = {
+        "full_name": "Nombre completo",
+        "curp": "CURP", 
+        "address": "Dirección",
+        "postal_code": "Código postal"
+    }
     missing_fields = []
     
-    for field in required_fields:
+    for field, description in required_fields.items():
         if field not in tool_context.state or not tool_context.state[field]:
-            missing_fields.append(field)
+            missing_fields.append(description)
     
     if missing_fields:
         return {
@@ -88,7 +133,7 @@ def validate_required_data(tool_context: ToolContext) -> dict:
     return {
         "status": "complete",
         "message": "Todos los datos requeridos están disponibles",
-        "available_data": {field: tool_context.state[field] for field in required_fields}
+        "available_data": {field: tool_context.state[field] for field in required_fields.keys()}
     }
 
 
@@ -163,14 +208,24 @@ document_extraction_agent = Agent(
     - Nombre completo
     - CURP  
     - Dirección completa
+    - Código postal
 
     INSTRUCCIONES IMPORTANTES:
     - SIEMPRE usa extract_personal_data() después de extraer información de un documento
     - SIEMPRE usa validate_required_data() para verificar si están completos los datos
     - Si no puedes leer algún campo claramente, indícalo
-    - Si falta información crítica, solicita otro documento o que el usuario proporcione el dato faltante
+    - Si falta información crítica (como código postal), usa update_manual_data() para pedirle al usuario que proporcione el dato faltante
+    - NUNCA dejes campos vacíos o supongas valores
     - Sé preciso en la extracción, los trámites gubernamentales requieren exactitud
     - Si el usuario envía un documento que no puedes procesar, explícale qué tipos de documentos sí puedes analizar
+
+    MANEJO DE DATOS FALTANTES:
+    - Si después de extraer datos de un documento FALTAN campos requeridos (especialmente código postal):
+      1. Identifica qué campos faltan usando validate_required_data()
+      2. Solicita al usuario que proporcione los datos faltantes específicamente
+      3. Cuando el usuario proporcione el dato, usa update_manual_data() para guardarlo
+      4. Vuelve a validar con validate_required_data()
+      5. Solo transfiere al agente de agendamiento cuando TODOS los datos estén completos
 
     FLUJO TRAS EXTRACCIÓN EXITOSA:
     1. Confirma qué información se extrajo
@@ -200,6 +255,6 @@ document_extraction_agent = Agent(
     
     IMPORTANTE: Cuando tengas todos los datos, SIEMPRE transfiere inmediatamente al agente de agendamiento. No esperes a que el usuario pregunte qué sigue.
     """,
-    tools=[extract_personal_data, validate_required_data],
+    tools=[extract_personal_data, validate_required_data, update_manual_data],
     sub_agents=[],  # Se configurará dinámicamente para evitar imports circulares
 )
