@@ -295,7 +295,7 @@ def send_appointment_email(tool_context: ToolContext, email: str, appointment_re
                 
                 <div class="footer">
                     <p>Este correo fue generado automáticamente por el Sistema de Trámites Gubernamentales</p>
-                    <p>Por favor no respondas a este correo</p>
+                    <p>Esta es una notificación automática. Para consultas, contacta directamente a la oficina correspondiente</p>
                 </div>
             </div>
         </div>

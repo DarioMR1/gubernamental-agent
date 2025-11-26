@@ -11,7 +11,7 @@ class Config:
     
     # Resend Email Configuration
     RESEND_API_KEY: Optional[str] = os.getenv("RESEND_API_KEY")
-    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "Trámites Gubernamentales <citas@diperion.com>")
+    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "Trámites Gubernamentales <notifications@diperion.com>")
     
     # Email Templates Configuration
     EMAIL_DOMAIN: str = os.getenv("EMAIL_DOMAIN", "diperion.com")
