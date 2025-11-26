@@ -1,0 +1,12 @@
+{
+  "initial_state": {
+    "full_name": "",
+    "curp": "",
+    "address": "", 
+    "postal_code": "",
+    "phone": "",
+    "email": "",
+    "appointments": [],
+    "interaction_history": []
+  }
+}
