@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 import random
+import os
 from typing import Optional
 from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
-from ..config import config
 
 
 def schedule_appointment(tool_context: ToolContext, service_type: str, preferred_date: Optional[str] = None) -> dict:
@@ -211,15 +211,15 @@ def send_appointment_email(tool_context: ToolContext, email: str, appointment_re
     # Get user data
     user_name = tool_context.state.get("full_name", "Usuario")
     
-    # Check if email is properly configured
-    if not config.is_email_enabled():
+    # Configure Resend API key from environment
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    if not resend_api_key:
         return {
             "status": "error", 
             "message": "RESEND_API_KEY no está configurada en las variables de entorno"
         }
     
-    # Configure Resend API
-    resend.api_key = config.RESEND_API_KEY
+    resend.api_key = resend_api_key
     
     # Create email content
     service_name = appointment["service"]
@@ -305,8 +305,9 @@ def send_appointment_email(tool_context: ToolContext, email: str, appointment_re
     
     try:
         # Send email using Resend
+        from_email = os.getenv("RESEND_FROM_EMAIL", "Trámites Gubernamentales <notifications@diperion.com>")
         params = {
-            "from": config.RESEND_FROM_EMAIL,
+            "from": from_email,
             "to": [email],
             "subject": f"Confirmación de Cita - {service_name} ({appointment_reference})",
             "html": html_content,
