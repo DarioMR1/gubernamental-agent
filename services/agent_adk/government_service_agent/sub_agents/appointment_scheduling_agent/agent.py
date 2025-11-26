@@ -3,6 +3,7 @@ import random
 from typing import Optional
 from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
+from ..config import config
 
 
 def schedule_appointment(tool_context: ToolContext, service_type: str, preferred_date: Optional[str] = None) -> dict:
@@ -175,6 +176,169 @@ def get_appointments(tool_context: ToolContext) -> dict:
     }
 
 
+def send_appointment_email(tool_context: ToolContext, email: str, appointment_reference: str) -> dict:
+    """
+    Sends appointment confirmation email using Resend.
+    
+    Args:
+        tool_context: The tool context for accessing session state
+        email: Email address to send the confirmation to
+        appointment_reference: Reference number of the appointment to send
+    """
+    try:
+        import resend
+    except ImportError:
+        return {
+            "status": "error",
+            "message": "Resend library not installed. Please install with: pip install resend"
+        }
+    
+    # Get appointment data
+    appointments = tool_context.state.get("appointments", [])
+    appointment = None
+    
+    for apt in appointments:
+        if apt.get("reference") == appointment_reference:
+            appointment = apt
+            break
+    
+    if not appointment:
+        return {
+            "status": "error",
+            "message": f"No se encontró la cita con referencia: {appointment_reference}"
+        }
+    
+    # Get user data
+    user_name = tool_context.state.get("full_name", "Usuario")
+    
+    # Check if email is properly configured
+    if not config.is_email_enabled():
+        return {
+            "status": "error", 
+            "message": "RESEND_API_KEY no está configurada en las variables de entorno"
+        }
+    
+    # Configure Resend API
+    resend.api_key = config.RESEND_API_KEY
+    
+    # Create email content
+    service_name = appointment["service"]
+    date = appointment["date"]
+    time = appointment["time"]
+    office = appointment["office"]
+    address = appointment["address"]
+    requirements = appointment.get("requirements", [])
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Confirmación de Cita - {service_name}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background-color: #2563eb; color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
+            .content {{ background-color: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px; }}
+            .info-box {{ background-color: white; padding: 20px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #2563eb; }}
+            .requirements {{ background-color: #fef3c7; padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; }}
+            .footer {{ text-align: center; margin-top: 30px; color: #6b7280; font-size: 14px; }}
+            h1 {{ margin: 0; }}
+            h2 {{ color: #2563eb; margin-top: 0; }}
+            ul {{ margin: 0; padding-left: 20px; }}
+            .reference {{ font-family: monospace; background: #e5e7eb; padding: 4px 8px; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🏛️ Confirmación de Cita Gubernamental</h1>
+                <p>Tu cita ha sido agendada exitosamente</p>
+            </div>
+            
+            <div class="content">
+                <h2>Hola {user_name},</h2>
+                <p>Te confirmamos que tu cita para <strong>{service_name}</strong> ha sido agendada con éxito.</p>
+                
+                <div class="info-box">
+                    <h3>📋 Detalles de tu Cita</h3>
+                    <p><strong>Servicio:</strong> {service_name}</p>
+                    <p><strong>Referencia:</strong> <span class="reference">{appointment_reference}</span></p>
+                    <p><strong>📅 Fecha:</strong> {date}</p>
+                    <p><strong>🕐 Hora:</strong> {time}</p>
+                    <p><strong>📍 Lugar:</strong> {office}</p>
+                    <p><strong>📍 Dirección:</strong> {address}</p>
+                </div>
+                
+                <div class="requirements">
+                    <h3>📄 Documentos Requeridos</h3>
+                    <p>Por favor lleva contigo los siguientes documentos:</p>
+                    <ul>
+    """
+    
+    for req in requirements:
+        html_content += f"<li>{req}</li>"
+    
+    html_content += f"""
+                    </ul>
+                </div>
+                
+                <div class="info-box">
+                    <h3>ℹ️ Información Importante</h3>
+                    <ul>
+                        <li>Llega <strong>15 minutos antes</strong> de tu cita</li>
+                        <li>Lleva todos los documentos requeridos</li>
+                        <li>Tu referencia es: <span class="reference">{appointment_reference}</span></li>
+                        <li>Si necesitas cancelar o reprogramar, comunícate con anticipación</li>
+                    </ul>
+                </div>
+                
+                <div class="footer">
+                    <p>Este correo fue generado automáticamente por el Sistema de Trámites Gubernamentales</p>
+                    <p>Por favor no respondas a este correo</p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    try:
+        # Send email using Resend
+        params = {
+            "from": config.RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": f"Confirmación de Cita - {service_name} ({appointment_reference})",
+            "html": html_content,
+        }
+        
+        result = resend.Emails.send(params)
+        
+        # Update state to record that email was sent
+        current_history = tool_context.state.get("interaction_history", [])
+        new_history = current_history.copy()
+        new_history.append({
+            "action": "email_sent",
+            "email": email,
+            "appointment_reference": appointment_reference,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        tool_context.state["interaction_history"] = new_history
+        
+        return {
+            "status": "success",
+            "message": f"Confirmación de cita enviada exitosamente a {email}",
+            "email_id": result.get("id"),
+            "appointment_reference": appointment_reference
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error al enviar el correo: {str(e)}"
+        }
+
+
 # Create the appointment scheduling agent
 appointment_scheduling_agent = Agent(
     name="appointment_scheduling_agent",
@@ -243,6 +407,12 @@ appointment_scheduling_agent = Agent(
     4. **Consultar citas:**
        - Usa get_appointments() para mostrar citas existentes
 
+    5. **Envío de confirmación por correo:**
+       - Después de agendar exitosamente, SIEMPRE pregunta si desea recibir confirmación por correo
+       - Si acepta, solicita su dirección de correo electrónico
+       - Usa send_appointment_email() con el email y la referencia de la cita
+       - Confirma el envío exitoso
+
     DATOS MÍNIMOS REQUERIDOS:
     - Nombre completo
     - CURP
@@ -273,7 +443,9 @@ appointment_scheduling_agent = Agent(
     
     👤 **Datos registrados:**
     - Nombre: Juan Pérez García
-    - CURP: PEGJ850515HDFLRN09"
+    - CURP: PEGJ850515HDFLRN09
+    
+    📧 ¿Te gustaría recibir la confirmación de tu cita por correo electrónico?"
     """,
-    tools=[schedule_appointment, get_available_services, get_appointments],
+    tools=[schedule_appointment, get_available_services, get_appointments, send_appointment_email],
 )
