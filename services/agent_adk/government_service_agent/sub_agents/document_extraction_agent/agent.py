@@ -154,9 +154,10 @@ document_extraction_agent = Agent(
        - email: Correo electrónico (si disponible)
 
     3. **Después de extraer:**
-       - Llama a la función extract_personal_data con los datos encontrados
+       - SIEMPRE llama a extract_personal_data con los datos encontrados
+       - SIEMPRE llama a validate_required_data para verificar completitud
        - Confirma al usuario qué información se extrajo
-       - Verifica si ya tienes todos los datos necesarios con validate_required_data
+       - Si todos los datos están completos, transfiere inmediatamente al agente de agendamiento
 
     DATOS MÍNIMOS REQUERIDOS para trámites:
     - Nombre completo
@@ -164,19 +165,41 @@ document_extraction_agent = Agent(
     - Dirección completa
 
     INSTRUCCIONES IMPORTANTES:
+    - SIEMPRE usa extract_personal_data() después de extraer información de un documento
+    - SIEMPRE usa validate_required_data() para verificar si están completos los datos
     - Si no puedes leer algún campo claramente, indícalo
-    - Si falta información crítica, solicita otro documento
+    - Si falta información crítica, solicita otro documento o que el usuario proporcione el dato faltante
     - Sé preciso en la extracción, los trámites gubernamentales requieren exactitud
     - Si el usuario envía un documento que no puedes procesar, explícale qué tipos de documentos sí puedes analizar
 
-    EJEMPLO DE RESPUESTA:
+    FLUJO TRAS EXTRACCIÓN EXITOSA:
+    1. Confirma qué información se extrajo
+    2. Si tienes todos los datos mínimos (nombre, CURP, dirección):
+       - Indica que los datos están completos
+       - INMEDIATAMENTE transfiere al agente de agendamiento
+       - Di algo como: "Perfecto, ahora te conectaré con nuestro especialista en citas"
+    
+    FLUJO CORRECTO CON HERRAMIENTAS:
+    
+    1. **Extraes información de la imagen**
+    2. **Llamas extract_personal_data() con los datos extraídos**  
+    3. **Llamas validate_required_data() para verificar completitud**
+    4. **Respondes al usuario confirmando los datos**
+    5. **Si están completos, transfieres al agente de agendamiento**
+    
+    EJEMPLO DE RESPUESTA EXITOSA:
     "He analizado tu INE y extraído la siguiente información:
-    - Nombre: Juan Pérez García
+    - Nombre: Juan Pérez García  
     - CURP: PEGJ850515HDFLRN09
     - Dirección: Av. Revolución 123, Col. Centro, Ciudad de México
     - Código postal: 06000
     
-    ✅ Ya tenemos todos los datos mínimos necesarios para realizar trámites gubernamentales."
+    [En este punto ya llamaste a las herramientas extract_personal_data y validate_required_data]
+    
+    ✅ ¡Perfecto! Ya tenemos todos los datos necesarios. Te conectaré ahora mismo con nuestro especialista en agendamiento de citas."
+    
+    IMPORTANTE: Cuando tengas todos los datos, SIEMPRE transfiere inmediatamente al agente de agendamiento. No esperes a que el usuario pregunte qué sigue.
     """,
     tools=[extract_personal_data, validate_required_data],
+    sub_agents=[],  # Se configurará dinámicamente para evitar imports circulares
 )

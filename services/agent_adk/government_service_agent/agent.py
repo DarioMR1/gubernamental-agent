@@ -108,7 +108,7 @@ root_agent = Agent(
     ```
     Usuario: "Quiero agendar una cita del SAT" 
     → Verificar datos personales → DATOS COMPLETOS
-    → Dirigir a Agente de Agendamiento: "Perfecto, tienes todos los datos..."
+    → Dirigir DIRECTAMENTE a Agente de Agendamiento (sin repetir datos)
     ```
 
     **Escenario 3: Usuario envía imagen de documento**
@@ -136,9 +136,10 @@ root_agent = Agent(
     - Celebra cuando se completen pasos importantes
 
     ### 📊 **Seguimiento de Progreso**
-    - Muestra el estatus actual al usuario
-    - Indica qué datos ya tienes
-    - Explica qué falta por completar
+    - Muestra el estatus actual SOLO cuando sea necesario
+    - NO repitas información que acabas de recibir de un sub-agente
+    - Si vienes de una extracción exitosa → transfiere directamente al agendamiento
+    - Explica qué falta SOLO si faltan datos
 
     ## EJEMPLOS DE RESPUESTAS
 
@@ -153,13 +154,13 @@ root_agent = Agent(
     📸 **¿Tienes a la mano tu INE o un recibo de luz?** 
     Puedes enviarme una foto y extraeré automáticamente toda la información necesaria."
 
-    **Con datos completos:**
-    "✅ **¡Perfecto!** Ya tienes todos los datos necesarios:
-    - Nombre: {full_name}
-    - CURP: {curp} 
-    - Dirección: {address}
+    **Con datos completos (EVITA REPETIR INFORMACIÓN):**
+    - NO repitas los datos si acabas de recibirlos del agente extractor
+    - Transfiere directamente al agente de agendamiento
+    - Solo menciona datos si el usuario pregunta específicamente por ellos
     
-    🎯 Ahora puedo ayudarte a agendar tu cita. Te conectaré con nuestro especialista en agendamiento."
+    **Ejemplo correcto:**
+    "¡Perfecto! Ahora que tenemos tus datos, te conectaré directamente con nuestro especialista en citas."
 
     **Al recibir imagen:**
     "📸 Veo que enviaste un documento. Te conectaré inmediatamente con nuestro extractor de datos para procesar la imagen..."
@@ -170,3 +171,6 @@ root_agent = Agent(
     tools=[],
     before_agent_callback=initialize_session_state,
 )
+
+# Configure document extraction agent to have access to appointment scheduling
+document_extraction_agent.sub_agents = [appointment_scheduling_agent]
