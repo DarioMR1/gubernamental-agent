@@ -5,6 +5,7 @@ from google.genai import types
 
 from .sub_agents.document_extraction_agent.agent import document_extraction_agent
 from .sub_agents.appointment_scheduling_agent.agent import appointment_scheduling_agent
+from .sub_agents.web_search_agent.agent import web_search_agent
 
 
 async def initialize_session_state(callback_context: CallbackContext) -> Optional[types.Content]:
@@ -76,6 +77,8 @@ root_agent = Agent(
     - Extraer datos de recibos de luz o agua
     - Procesar cualquier documento gubernamental con visión de IA
 
+    Si te hacen una pregunta general o no relacionada con hacer citas gubernamentales, dirige al **Agente de Investigación Web**. Sin importar que no te den información personal.
+
     ### 2. **Agendamiento de Citas**
     Una vez que tengas todos los datos, dirige al **Agente de Agendamiento** que puede:
     - Mostrar servicios disponibles (SAT, pasaporte, licencia, actas)
@@ -95,6 +98,12 @@ root_agent = Agent(
     - Proporciona fechas específicas, horarios y ubicaciones
     - Lista requisitos específicos por trámite
     - Solo funciona CON datos personales completos
+
+    ### **Agente de Investigación Web**
+    - Realiza búsquedas web para información general
+    - Usa la herramienta `search_web_with_tavily` para búsquedas rápidas
+    - Proporciona resúmenes claros y concisos
+    - Cita fuentes al final de la respuesta, prioriza fuentes mexicanas y gubernamentales
 
     ## LÓGICA DE ROUTING
 
@@ -169,7 +178,7 @@ root_agent = Agent(
 
     RECUERDA: Tu trabajo es SER EL COORDINADOR INTELIGENTE que guía el flujo completo.
     """,
-    sub_agents=[document_extraction_agent, appointment_scheduling_agent],
+    sub_agents=[document_extraction_agent, appointment_scheduling_agent, web_search_agent],
     tools=[],
     before_agent_callback=initialize_session_state,
 )
