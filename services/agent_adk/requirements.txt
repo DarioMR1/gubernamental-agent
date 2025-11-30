@@ -1,9 +1,0 @@
-google_adk
-psycopg2-binary
-uvicorn
-fastapi
-aiohttp
-python-dotenv
-requests
-resend
-# Add any other dependencies your agent needs

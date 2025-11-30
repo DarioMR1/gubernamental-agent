@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "semovi-licencias-agent"
+version = "0.1.0"
+description = "Agent gubernamental para trámites de SEMOVI desarrollado con Google ADK"
+authors = ["Dario Mariscal <dariomariscal@example.com>"]
+readme = "README.md"
+packages = [{include = "government_service_agent"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+requests = "^2.31.0"
+google-adk = "^1.11.0"
+pydantic = "^2.11.3"
+python-dotenv = "^1.1.0"
+google-cloud-aiplatform = {extras = ["adk", "agent_engines"], version = "^1.128.0"}
+absl-py = "^2.1.0"
+cloudpickle = "^3.0.0"
+resend = "^2.0.0"
+aiohttp = "^3.9.0"
+
+[tool.poetry.scripts]
+semovi-agent = "government_service_agent:app"
+deploy-local = "deployment.local:main"
+deploy-remote = "deployment.remote:main"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+black = "^23.0.0"
+flake8 = "^6.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
