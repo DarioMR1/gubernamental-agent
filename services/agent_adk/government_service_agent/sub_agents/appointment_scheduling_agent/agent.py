@@ -3,11 +3,35 @@ from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
 import random
 from typing import List, Dict
+import sqlite3
 import os
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
+
+def init_db():
+    """Inicializa la base de datos SQLite para las citas."""
+    conn = sqlite3.connect('citas_sat.db')
+    cursor = conn.cursor()
+    # Creamos una tabla si no existe
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS appointments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            confirmation_number TEXT UNIQUE,
+            office_id TEXT,
+            office_name TEXT,
+            date TEXT,
+            time TEXT,
+            service_type TEXT,
+            user_curp TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
 
 
 def search_sat_locations_by_postal_code(tool_context: ToolContext, postal_code: str) -> dict:
@@ -147,108 +171,82 @@ def get_available_appointments(tool_context: ToolContext, office_id: str, servic
     }
 
 
-def schedule_sat_appointment(tool_context: ToolContext, office_id: str, slot_id: str, service_type: str) -> dict:
+def schedule_sat_appointment(
+    tool_context: ToolContext, 
+    office_id: str, 
+    date: str, 
+    time: str, 
+    service_type: str
+) -> dict:
     """
-    Agenda una cita en el SAT con la información personal del usuario.
-    
-    Args:
-        tool_context: Contexto de la herramienta
-        office_id: ID de la oficina del SAT
-        slot_id: ID del horario seleccionado
-        service_type: Tipo de servicio solicitado
+    Agenda una cita en el SAT verificando disponibilidad real en base de datos.
+    Previene doble agendamiento en la misma oficina/hora.
     """
-    # Verificar que tengamos todos los datos personales requeridos
-    required_fields = ["full_name", "curp", "address", "postal_code"]
-    missing_fields = []
-    
-    for field in required_fields:
-        if field not in tool_context.state or not tool_context.state[field]:
-            missing_fields.append(field)
-    
-    if missing_fields:
-        return {
-            "status": "error",
-            "message": f"Faltan datos personales requeridos: {', '.join(missing_fields)}",
-            "missing_fields": missing_fields
+    conn = sqlite3.connect('citas_sat.db')
+    cursor = conn.cursor()
+
+    try:
+        # 1. VALIDACIÓN DE DISPONIBILIDAD (EL CANDADO 🔒)
+        # Buscamos si ya existe una cita en esa oficina, ese día y a esa hora
+        cursor.execute('''
+            SELECT count(*) FROM appointments 
+            WHERE office_id = ? AND date = ? AND time = ?
+        ''', (office_id, date, time))
+        
+        count = cursor.fetchone()[0]
+        
+        if count > 0:
+            conn.close()
+            return {
+                "status": "error", 
+                "message": f"❌ LO SIENTO: El horario de las {time} el día {date} en esta oficina YA ESTÁ OCUPADO. Por favor selecciona otro horario."
+            }
+
+        # 2. GENERAR CITA (Si está libre)
+        confirmation_number = f"SAT-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+        
+        # Recuperamos info del usuario del estado actual
+        user_info = tool_context.state.get("user_info", {})
+        user_curp = user_info.get("curp", "GENERICO")
+        
+        # Intentamos obtener el nombre de la oficina (esto es opcional, solo para guardar bonito)
+        # En un caso real haríamos un lookup, aquí usaremos el ID como nombre si no está en el estado
+        office_name = office_id 
+
+        # 3. GUARDAR EN BASE DE DATOS (INSERT)
+        cursor.execute('''
+            INSERT INTO appointments (confirmation_number, office_id, office_name, date, time, service_type, user_curp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (confirmation_number, office_id, office_name, date, time, service_type, user_curp))
+        
+        conn.commit()
+
+        # 4. ACTUALIZAR ESTADO DEL AGENTE (Para que el PDF funcione)
+        # Esto mantiene la compatibilidad con tu función de PDF y Email
+        appointment_details = {
+            "confirmation_number": confirmation_number,
+            "office": {"id": office_id, "name": office_name, "address": "Dirección registrada en BD"},
+            "date": date,
+            "time": time,
+            "service_type": service_type,
+            "user_info": user_info
         }
-    
-    # Buscar el slot específico
-    available_slots = tool_context.state.get("available_appointments", [])
-    selected_slot = None
-    for slot in available_slots:
-        if slot["slot_id"] == slot_id:
-            selected_slot = slot
-            break
-    
-    if not selected_slot:
+        
+        current_appointments = tool_context.state.get("appointments", [])
+        current_appointments.append(appointment_details)
+        tool_context.state["appointments"] = current_appointments
+
         return {
-            "status": "error", 
-            "message": "El horario seleccionado no está disponible"
+            "status": "success",
+            "confirmation_number": confirmation_number,
+            "details": f"Cita confirmada en BD para {date} a las {time}.",
+            "message": "Cita bloqueada y registrada exitosamente."
         }
-    
-    # Buscar información de la oficina
-    sat_locations = tool_context.state.get("sat_locations", [])
-    selected_office = None
-    for office in sat_locations:
-        if office["id"] == office_id:
-            selected_office = office
-            break
-    
-    if not selected_office:
-        return {
-            "status": "error",
-            "message": "Oficina no encontrada"
-        }
-    
-    # Generar número de confirmación
-    confirmation_number = f"SAT{random.randint(100000, 999999)}"
-    
-    # Crear objeto de cita
-    appointment = {
-        "confirmation_number": confirmation_number,
-        "service_type": service_type,
-        "date": selected_slot["date"],
-        "time": selected_slot["time"],
-        "office": selected_office,
-        "user_info": {
-            "full_name": tool_context.state["full_name"],
-            "curp": tool_context.state["curp"], 
-            "address": tool_context.state["address"],
-            "postal_code": tool_context.state["postal_code"],
-            "phone": tool_context.state.get("phone", ""),
-            "email": tool_context.state.get("email", "")
-        },
-        "status": "confirmed",
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
-    # Guardar cita en el estado
-    current_appointments = tool_context.state.get("appointments", [])
-    updated_appointments = current_appointments.copy()
-    updated_appointments.append(appointment)
-    tool_context.state["appointments"] = updated_appointments
-    
-    # Actualizar historial
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    current_history = tool_context.state.get("interaction_history", [])
-    new_history = current_history.copy()
-    new_history.append({
-        "action": "schedule_appointment",
-        "confirmation_number": confirmation_number,
-        "service_type": service_type,
-        "date": selected_slot["date"],
-        "time": selected_slot["time"],
-        "office_name": selected_office["name"],
-        "timestamp": current_time
-    })
-    tool_context.state["interaction_history"] = new_history
-    
-    return {
-        "status": "success",
-        "appointment": appointment,
-        "confirmation_number": confirmation_number,
-        "message": f"¡Cita agendada exitosamente! Número de confirmación: {confirmation_number}"
-    }
+
+    except Exception as e:
+        return {"status": "error", "message": f"Error de base de datos: {str(e)}"}
+    finally:
+        conn.close()
 
 
 def get_appointment_requirements(tool_context: ToolContext, service_type: str) -> dict:
@@ -697,7 +695,123 @@ def send_appointment_confirmation_email(tool_context: ToolContext, email: str, c
             "status": "error",
             "message": f"Error al enviar el correo: {str(e)}"
         }
+    
 
+def generate_appointment_pdf(tool_context: ToolContext, confirmation_number: str) -> dict:
+    """
+    Genera un PDF robusto. Si faltan datos, usa valores por defecto en lugar de fallar.
+    """
+    print(f"--- 📄 INTENTANDO GENERAR PDF PARA: {confirmation_number} ---")
+
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+    except ImportError:
+        return {"status": "error", "message": "Falta librería 'reportlab'. Ejecuta: pip install reportlab"}
+
+    # 1. BUSCAR LA CITA EN EL ESTADO
+    # A veces el número viene con espacios extra, los limpiamos
+    clean_confirmation = confirmation_number.strip()
+    
+    appointments = tool_context.state.get("appointments", [])
+    appointment = None
+    
+    # Búsqueda manual para ver qué tenemos
+    print(f"    🔍 Buscando en {len(appointments)} citas registradas en memoria...")
+    for apt in appointments:
+        # Imprimimos para depurar
+        print(f"       - Comparando con: {apt.get('confirmation_number')}")
+        if apt.get("confirmation_number") == clean_confirmation:
+            appointment = apt
+            break
+    
+    if not appointment:
+        print("    ❌ Error: No se encontró el folio en la memoria de la sesión.")
+        return {"status": "error", "message": f"No encontré la cita {clean_confirmation} en mis registros momentáneos."}
+
+    # 2. OBTENER DATOS DE FORMA SEGURA (USANDO .get PARA EVITAR ERRORES)
+    # Si user_info está vacío, usamos diccionarios vacíos por defecto
+    user = appointment.get("user_info", {}) or {}
+    office = appointment.get("office", {}) or {}
+    
+    # Datos con valores por defecto (Esto evita que el código truene si falta algo)
+    full_name = user.get("full_name", "Usuario no registrado")
+    curp = user.get("curp", "N/A")
+    email = user.get("email", "N/A")
+    
+    service_type = appointment.get("service_type", "Trámite General")
+    date_str = appointment.get("date", "Fecha pendiente")
+    time_str = appointment.get("time", "--:--")
+    
+    office_name = office.get("name", "Oficina SAT")
+    office_address = office.get("address", "Dirección no disponible")
+
+    filename = f"Cita_SAT_{clean_confirmation}.pdf"
+    
+    try:
+        # 3. DIBUJAR EL PDF
+        c = canvas.Canvas(filename, pagesize=letter)
+        width, height = letter
+
+        # Encabezado
+        c.setFillColor(colors.darkblue)
+        c.setFont("Helvetica-Bold", 20)
+        c.drawString(50, height - 50, "Comprobante de Cita SAT")
+        
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica", 10)
+        c.drawString(50, height - 70, "Sistema de Citas Automatizado")
+        c.drawString(50, height - 85, f"Emisión: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.line(50, height - 95, width - 50, height - 95)
+
+        # Cuerpo
+        y = height - 130
+        
+        # Sección Cita
+        c.setFont("Helvetica-Bold", 14); c.drawString(50, y, "Detalles de la Cita")
+        y -= 25
+        c.setFont("Helvetica", 12)
+        c.drawString(50, y, f"Folio: {clean_confirmation}")
+        y -= 20
+        c.drawString(50, y, f"Trámite: {service_type}")
+        y -= 20
+        c.drawString(50, y, f"Cuándo: {date_str} a las {time_str}")
+        y -= 40
+
+        # Sección Usuario
+        c.setFont("Helvetica-Bold", 14); c.drawString(50, y, "Solicitante")
+        y -= 25
+        c.setFont("Helvetica", 12)
+        c.drawString(50, y, f"Nombre: {full_name}")
+        y -= 20
+        c.drawString(50, y, f"CURP: {curp}")
+        y -= 40
+
+        # Sección Ubicación
+        c.setFont("Helvetica-Bold", 14); c.drawString(50, y, "Lugar")
+        y -= 25
+        c.setFont("Helvetica", 12)
+        c.drawString(50, y, f"Sede: {office_name}")
+        y -= 20
+        c.setFont("Helvetica", 10)
+        c.drawString(50, y, f"Dir: {office_address}")
+
+        c.save()
+        print(f"    ✅ PDF creado exitosamente: {filename}")
+
+        abs_path = os.path.abspath(filename)
+
+        return {
+            "status": "success",
+            "message": "PDF Generado.",
+            "file_name": filename,
+            "download_link": f"[{filename}](file:///{abs_path})", 
+            "note": "Usa la herramienta 'send_email_with_pdf' para enviarlo."
+        }
+    except Exception as e:
+        print(f"    🔥 Error dibujando PDF: {e}")
+        return {"status": "error", "message": f"Error interno al dibujar PDF: {str(e)}"}
 
 # Crear el agente de agendamiento de citas
 appointment_scheduling_agent = Agent(
@@ -808,6 +922,9 @@ appointment_scheduling_agent = Agent(
        "¿Te gustaría recibir la confirmación de tu cita por correo electrónico?"
     2. Si dice que sí, solicita su dirección de email
     3. Usa `send_appointment_confirmation_email()` para enviar la confirmación
+    2. Pregunta u ofrece generar el comprobante en PDF para descargar.
+       - Usa la herramienta `generate_appointment_pdf(confirmation_number)`.
+       - Informa al usuario cuando el archivo esté listo para descargar.
     4. Confirma que el correo se envió exitosamente
 
     ## INSTRUCCIONES IMPORTANTES
@@ -926,7 +1043,7 @@ appointment_scheduling_agent = Agent(
     3. `schedule_sat_appointment()` - Agendar la cita
     4. `get_appointment_requirements()` - Obtener requisitos del servicio
     5. `send_appointment_confirmation_email()` - Enviar confirmación por correo electrónico
-
+    6. `generate_appointment_pdf()` - Genera comprobante físico en PDF descargable
     ## MANEJO DE ERRORES
 
     - Si no hay horarios disponibles, ofrece oficinas alternativas
@@ -940,7 +1057,8 @@ appointment_scheduling_agent = Agent(
         get_available_appointments, 
         schedule_sat_appointment,
         get_appointment_requirements,
-        send_appointment_confirmation_email
+        send_appointment_confirmation_email,
+        generate_appointment_pdf,
     ],
     sub_agents=[],
 )
