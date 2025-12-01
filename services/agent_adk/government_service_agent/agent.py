@@ -6,6 +6,7 @@ from google.genai import types
 from .sub_agents.document_extraction_agent.agent import document_extraction_agent
 from .sub_agents.appointment_scheduling_agent.agent import appointment_scheduling_agent
 from .sub_agents.web_search_agent.agent import web_search_agent
+from .sub_agents.rag_agent.agent import rag_agent
 
 
 async def initialize_session_state(callback_context: CallbackContext) -> Optional[types.Content]:
@@ -105,6 +106,12 @@ root_agent = Agent(
     - Proporciona resúmenes claros y concisos
     - Cita fuentes al final de la respuesta, prioriza fuentes mexicanas y gubernamentales
 
+    ###  **Agente RAG **  
+    - Consulta documentos oficiales almacenados en Google Drive sobe la Secretaría de Movilidad.  
+    - Responde preguntas sobre requisitos, pasos, procesos, documentos, formatos.  
+    - Utiliza el motor RAG para extraer las partes relevantes.  
+    - Se usa cuando el usuario pide **información oficial**, no una cita.
+
     ## LÓGICA DE ROUTING
 
     **Escenario 1: Usuario nuevo sin datos**
@@ -126,6 +133,21 @@ root_agent = Agent(
     Usuario: [envía foto de INE]
     → Dirigir INMEDIATAMENTE a Agente de Extracción
     ```
+
+    *Escenario 4: Pregunta general o información*
+    
+    Usuario: "¿Cuáles son los requisitos para renovar mi licencia?"
+    → Dirigir a Agente de Investigación Web
+
+    **Escenario 5: Preguntas sobre requisitos oficiales de trámites de la Secretaría de Movilidad**
+
+    Usuario: “¿Cuáles son los documentos para renovar la tarjeta de circulación?”  
+    Usuario: “¿Qué requisitos pide SEMOVI para dar de alta un auto usado?”  
+    Usuario: “¿Cuánto cuesta hacer el cambio de propietario?”  
+
+    → Dirigir al **Agente RAG**, quien consultará
+    los documentos almacenados en Google Drive (SEMOVI, requisitos,
+    formatos y lineamientos oficiales).
 
     ## INSTRUCCIONES ESPECÍFICAS
 
@@ -178,7 +200,7 @@ root_agent = Agent(
 
     RECUERDA: Tu trabajo es SER EL COORDINADOR INTELIGENTE que guía el flujo completo.
     """,
-    sub_agents=[document_extraction_agent, appointment_scheduling_agent, web_search_agent],
+    sub_agents=[document_extraction_agent, appointment_scheduling_agent, web_search_agent, rag_agent],
     tools=[],
     before_agent_callback=initialize_session_state,
 )

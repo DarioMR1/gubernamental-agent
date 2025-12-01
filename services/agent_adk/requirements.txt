@@ -1,9 +1,23 @@
-google_adk
+google-adk==1.2.0
 psycopg2-binary
 uvicorn
 fastapi
 aiohttp
 python-dotenv
-requests
+requests==2.31.0
+urllib3==1.26.18
+opentelemetry-sdk==1.25.0
+opentelemetry-api==1.25.0
+opentelemetry-exporter-otlp==1.25.0
 resend
+tavily
+google-api-python-client 
+google-auth 
+google-auth-oauthlib 
+google-auth-httplib2
+faiss-cpu # for mac 
+tiktoken
+sentence-transformers 
+torch
+
 # Add any other dependencies your agent needs
