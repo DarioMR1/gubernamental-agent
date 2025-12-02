@@ -1,17 +1,18 @@
 import os
 import random
 import sqlite3
-import smtplib
+import base64
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional # <--- IMPORTANTE: Optional es necesario
+from typing import List, Dict, Optional
+from io import BytesIO
 
 # --- IMPORTS DE CORREO Y PDF ---
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
 try:
+    import resend
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
+    from reportlab.lib.colors import black, darkblue
+    from reportlab.lib.utils import ImageReader
 except ImportError:
     pass 
 
@@ -122,7 +123,7 @@ def search_sat_locations_by_postal_code(tool_context: ToolContext, postal_code: 
     }
 
 
-def get_available_appointments(tool_context: ToolContext, office_id: str, service_type: str = "RFC") -> dict:
+def get_available_appointments(tool_context: ToolContext, office_id: str, service_type: str) -> dict:
     """
     Consulta horarios disponibles para una oficina específica del SAT.
     
@@ -131,6 +132,9 @@ def get_available_appointments(tool_context: ToolContext, office_id: str, servic
         office_id: ID de la oficina del SAT
         service_type: Tipo de servicio (RFC, Firma electrónica, etc.)
     """
+    # Si no se proporciona service_type, usar valor por defecto
+    if not service_type:
+        service_type = "RFC"
     # Simular disponibilidad de citas para los próximos 15 días
     available_slots = []
     start_date = datetime.now() + timedelta(days=2)  # Citas disponibles desde pasado mañana
@@ -352,125 +356,316 @@ def get_appointment_requirements(tool_context: ToolContext, service_type: str) -
 
 def send_appointment_confirmation_email(
     tool_context: ToolContext, 
-    to_email: str, 
-    attachment_path: Optional[str] = None
+    to_email: str
 ) -> dict:
     """
-    Envía un correo con los detalles de la cita (Fecha, Hora, Nombre) obtenidos del estado
-    y adjunta el PDF si se proporciona.
+    Envía un correo con los detalles de la cita usando Resend con PDF automáticamente generado y adjunto.
     """
-    # 1. RECUPERAR DATOS DEL ESTADO (Memoria)
-    # Buscamos el nombre
-    user_info = tool_context.state.get("user_info", {})
-    user_name = user_info.get("full_name", "Contribuyente")
+    try:
+        # 1. RECUPERAR DATOS DEL ESTADO (Memoria)
+        user_info = tool_context.state.get("user_info", {})
+        user_name = user_info.get("full_name", "Contribuyente")
 
-    # Buscamos la última cita agendada para sacar fecha y hora
-    appointments = tool_context.state.get("appointments", [])
-    if appointments:
-        # Tomamos la última de la lista
+        # Buscamos la última cita agendada para sacar fecha y hora
+        appointments = tool_context.state.get("appointments", [])
+        if not appointments:
+            return {"status": "error", "message": "No se encontró información de la cita para enviar el correo."}
+        
         last_appt = appointments[-1]
         appt_date = last_appt.get("date", "Fecha pendiente")
         appt_time = last_appt.get("time", "--:--")
         appt_office = last_appt.get("office", {}).get("name", "Oficina SAT")
         service = last_appt.get("service_type", "Trámite")
-    else:
-        # Valores por defecto si no hay cita en memoria
-        appt_date = "N/A"
-        appt_time = "N/A"
-        appt_office = "Oficina SAT"
-        service = "General"
+        confirmation_number = last_appt.get("confirmation_number", "N/A")
 
-    # 2. CONFIGURACIÓN (Simulada o Real)
-    sender_email = "tu_correo_simulado@gmail.com" 
-    sender_password = "tu_contraseña"
-    
-    # MODO SIMULACIÓN (Si no tienes credenciales reales)
-    if "simulado" in sender_email:
-        print(f"\n📧 [SIMULACIÓN DE CORREO]")
-        print(f"   De: SAT Virtual")
-        print(f"   Para: {to_email}")
-        print(f"   Asunto: Confirmación de Cita - {user_name}")
-        print(f"   Mensaje:")
-        print(f"     Hola {user_name},")
-        print(f"     Tu cita está confirmada para el {appt_date} a las {appt_time}.")
-        if attachment_path:
-            print(f"   📎 Adjunto incluido: {attachment_path}")
-        print("-" * 30)
-        return {"status": "success", "message": f"Correo simulado enviado a {to_email} con los datos de la cita."}
+        # 2. GENERAR PDF AUTOMÁTICAMENTE
+        pdf_result = generate_appointment_pdf_bytes(tool_context, confirmation_number)
+        if pdf_result["status"] != "success":
+            return {
+                "status": "error",
+                "message": f"Error generando PDF: {pdf_result.get('message', 'Error desconocido')}"
+            }
 
-    try:
-        # 3. CONSTRUIR EL CORREO REAL
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = f"Confirmación de Cita SAT - {appt_date}"
+        # 3. CONFIGURAR RESEND
+        resend_api_key = os.getenv("RESEND_API_KEY")
+        from_email = os.getenv("RESEND_FROM_EMAIL", "Trámites Gubernamentales <notifications@diperion.com>")
+        
+        if not resend_api_key:
+            return {"status": "error", "message": "RESEND_API_KEY no configurada en variables de entorno"}
 
-        # --- AQUÍ ESTÁ EL CAMBIO DEL BODY ---
-        body = f"""
-        Estimado/a Contribuyente,
-        
-        Le confirmamos que su cita ha sido agendada exitosamente.
-        
-        Detalles del servicio:
-        -----------------------------------
-        Contribuyente: {user_name}
-        📅 Fecha:   {appt_date}
-        ⏰ Hora:    {appt_time}
-        📍 Lugar:   {appt_office}
-        📋 Trámite: {service}
-        -----------------------------------
-        
-        Adjunto encontrará su comprobante oficial en PDF.
-        Por favor preséntese 10 minutos antes con su identificación oficial.
-        
-        Atentamente,
-        Servicio de Administración Tributaria
+        resend.api_key = resend_api_key
+
+        # 4. CREAR CONTENIDO HTML PROFESIONAL
+        html_body = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+                .content {{ background: #f8fafc; padding: 30px; border-radius: 0 0 10px 10px; }}
+                .appointment-card {{ background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 20px 0; }}
+                .detail-row {{ display: flex; justify-content: space-between; margin: 12px 0; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }}
+                .label {{ font-weight: bold; color: #475569; }}
+                .value {{ color: #1e293b; }}
+                .confirmation-box {{ background: #10b981; color: white; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0; }}
+                .footer {{ text-align: center; color: #64748b; margin-top: 30px; }}
+                .logo {{ font-size: 24px; font-weight: bold; margin-bottom: 10px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <div class="logo">🏛️ SAT</div>
+                    <h1>Confirmación de Cita</h1>
+                    <p>Servicio de Administración Tributaria</p>
+                </div>
+                
+                <div class="content">
+                    <p><strong>Estimado/a {user_name},</strong></p>
+                    <p>Su cita ha sido <strong>confirmada exitosamente</strong> en el Sistema de Administración Tributaria.</p>
+                    
+                    <div class="confirmation-box">
+                        <h3>📋 Número de Confirmación: {confirmation_number}</h3>
+                    </div>
+                    
+                    <div class="appointment-card">
+                        <h3>📅 Detalles de su Cita</h3>
+                        <div class="detail-row">
+                            <span class="label">👤 Contribuyente:</span>
+                            <span class="value">{user_name}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">📅 Fecha:</span>
+                            <span class="value">{appt_date}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">⏰ Hora:</span>
+                            <span class="value">{appt_time}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">📍 Oficina:</span>
+                            <span class="value">{appt_office}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">📋 Trámite:</span>
+                            <span class="value">{service}</span>
+                        </div>
+                    </div>
+                    
+                    <div style="background: #fef3c7; padding: 20px; border-radius: 6px; margin: 20px 0;">
+                        <h4>⚠️ Recordatorios Importantes:</h4>
+                        <ul>
+                            <li>🕘 Presente se <strong>10 minutos antes</strong> de su cita</li>
+                            <li>🆔 Traiga su <strong>identificación oficial vigente</strong></li>
+                            <li>📄 Adjunto encontrará su <strong>comprobante en PDF</strong></li>
+                            <li>📞 Para reagendar, contacte la oficina con 24 horas de anticipación</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    <p>Este correo fue generado automáticamente por el Sistema de Citas del SAT</p>
+                    <p><small>© 2024 Servicio de Administración Tributaria - México</small></p>
+                </div>
+            </div>
+        </body>
+        </html>
         """
-        msg.attach(MIMEText(body, 'plain'))
 
-        # 4. ADJUNTAR PDF
-        if attachment_path:
-            if os.path.exists(attachment_path):
-                with open(attachment_path, "rb") as f:
-                    part = MIMEApplication(f.read(), Name=os.path.basename(attachment_path))
-                part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
-                msg.attach(part)
-            else:
-                return {"status": "error", "message": f"No encontré el archivo adjunto: {attachment_path}"}
+        # 5. ENVIAR EMAIL CON RESEND
+        result = resend.Emails.send({
+            "from": from_email,
+            "to": [to_email],
+            "subject": f"✅ Confirmación de Cita SAT - {confirmation_number}",
+            "html": html_body,
+            "attachments": [{
+                "filename": f"Cita_SAT_{confirmation_number}.pdf",
+                "content": pdf_result["pdf_base64"]
+            }]
+        })
 
-        # 5. ENVIAR
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.send_message(msg)
-        server.quit()
+        # 6. ACTUALIZAR ESTADO
+        tool_context.state["email_confirmation"] = {
+            "email": to_email,
+            "sent_at": datetime.now().isoformat(),
+            "confirmation_code": confirmation_number,
+            "status": "sent",
+            "resend_id": result.get("id", "unknown")
+        }
 
-        return {"status": "success", "message": f"Correo enviado a {to_email} con fecha y hora."}
+        return {
+            "status": "success",
+            "message": f"📧 Correo de confirmación enviado exitosamente a {to_email}",
+            "confirmation_code": confirmation_number,
+            "resend_id": result.get("id"),
+            "email": to_email
+        }
 
+    except ImportError:
+        return {"status": "error", "message": "Resend no está instalado. Instala con: pip install resend"}
     except Exception as e:
         return {"status": "error", "message": f"Error enviando correo: {str(e)}"}    
 
-def generate_appointment_pdf(tool_context: ToolContext, confirmation_number: str) -> dict:
+def generate_appointment_pdf_bytes(tool_context: ToolContext, confirmation_number: str) -> dict:
     """
-    Genera el PDF tomando los datos del usuario directamente del STATE global,
-    sin importar dónde se guardó la cita.
+    Genera el PDF en memoria para adjuntar al email, sin guardarlo en disco.
+    Retorna el PDF en base64 para usar con Resend.
     """
     try:
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import letter
+        from reportlab.lib.colors import black, darkblue, darkgreen
     except ImportError:
-        return {"status": "error", "message": "Falta reportlab."}
+        return {"status": "error", "message": "reportlab no está instalado"}
 
-    # 1. RECUPERAR DATOS DEL USUARIO DIRECTAMENTE DEL STATE
-    # No buscamos dentro de la cita, vamos a la memoria global de la sesión.
-    state_user_info = tool_context.state.get("user_info", {})
+    # 1. RECUPERAR DATOS DEL USUARIO Y CITA
+    user_info = tool_context.state.get("user_info", {})
+    user_name = user_info.get("full_name", "Usuario Genérico")
+    user_curp = user_info.get("curp", "SIN DATO")
+    user_address = user_info.get("address", "Sin dirección")
+
+    # Buscar la cita específica
+    clean_confirmation = confirmation_number.strip()
+    appointments = tool_context.state.get("appointments", [])
+    appointment = next((a for a in appointments if a.get("confirmation_number") == clean_confirmation), None)
     
-    # Extraemos con valores por defecto por si algo falta
-    user_name = state_user_info.get("full_name", "Usuario Genérico")
-    user_curp = state_user_info.get("curp", "SIN DATO")
+    if not appointment:
+        return {"status": "error", "message": "Cita no encontrada en memoria temporal."}
 
-    # 2. RECUPERAR DETALLES DE LA CITA
-    # Buscamos la cita solo para obtener fecha, hora y oficina
+    # 2. CREAR PDF EN MEMORIA
+    buffer = BytesIO()
+    
+    try:
+        c = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
+        
+        # === HEADER CON LOGO Y TÍTULO ===
+        c.setFillColor(darkblue)
+        c.rect(0, height-80, width, 80, fill=1)
+        
+        c.setFillColor('white')
+        c.setFont("Helvetica-Bold", 24)
+        c.drawString(50, height-35, "🏛️ SAT - COMPROBANTE DE CITA")
+        
+        c.setFont("Helvetica", 12)
+        c.drawString(50, height-55, "Servicio de Administración Tributaria")
+        
+        # === NÚMERO DE CONFIRMACIÓN DESTACADO ===
+        c.setFillColor(darkgreen)
+        c.rect(50, height-150, width-100, 40, fill=1)
+        
+        c.setFillColor('white')
+        c.setFont("Helvetica-Bold", 16)
+        c.drawCentredText(width/2, height-135, f"CONFIRMACIÓN: {clean_confirmation}")
+        
+        # === INFORMACIÓN DEL CONTRIBUYENTE ===
+        c.setFillColor(black)
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, height-190, "DATOS DEL CONTRIBUYENTE:")
+        
+        c.setFont("Helvetica", 12)
+        y_position = height-210
+        contribuyente_data = [
+            f"👤 Nombre: {user_name}",
+            f"🆔 CURP: {user_curp}",
+            f"🏠 Dirección: {user_address}"
+        ]
+        
+        for line in contribuyente_data:
+            c.drawString(70, y_position, line)
+            y_position -= 20
+        
+        # === DETALLES DE LA CITA ===
+        y_position -= 20
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, y_position, "DETALLES DE LA CITA:")
+        y_position -= 20
+        
+        c.setFont("Helvetica", 12)
+        cita_data = [
+            f"📋 Trámite: {appointment.get('service_type', 'General')}",
+            f"📅 Fecha: {appointment.get('date', 'N/A')}",
+            f"⏰ Hora: {appointment.get('time', 'N/A')}",
+            f"📍 Oficina: {appointment.get('office', {}).get('name', 'SAT')}"
+        ]
+        
+        for line in cita_data:
+            c.drawString(70, y_position, line)
+            y_position -= 20
+        
+        # === RECORDATORIOS IMPORTANTES ===
+        y_position -= 30
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, y_position, "⚠️ RECORDATORIOS IMPORTANTES:")
+        y_position -= 20
+        
+        c.setFont("Helvetica", 11)
+        recordatorios = [
+            "• Presente este comprobante el día de su cita",
+            "• Llegue 10 minutos antes del horario programado", 
+            "• Traiga identificación oficial vigente (INE/Pasaporte)",
+            "• Para reagendar, contacte la oficina con 24 horas de anticipación",
+            "• En caso de no asistir, su cita será cancelada automáticamente"
+        ]
+        
+        for recordatorio in recordatorios:
+            c.drawString(70, y_position, recordatorio)
+            y_position -= 18
+        
+        # === CÓDIGO QR SIMULADO ===
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, 100, "📱 CÓDIGO QR PARA CHECK-IN RÁPIDO:")
+        c.rect(50, 50, 80, 80, fill=0)
+        c.drawCentredText(90, 85, "QR CODE")
+        c.drawCentredText(90, 75, f"ID: {clean_confirmation[-4:]}")
+        
+        # === PIE DE PÁGINA ===
+        c.setFont("Helvetica", 9)
+        c.drawCentredText(width/2, 30, f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        c.drawCentredText(width/2, 15, "© 2024 SAT - Este documento es válido únicamente para la cita programada")
+        
+        c.save()
+        
+        # 3. CONVERTIR A BASE64 PARA RESEND
+        buffer.seek(0)
+        pdf_bytes = buffer.getvalue()
+        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        buffer.close()
+        
+        return {
+            "status": "success",
+            "message": "PDF generado exitosamente en memoria",
+            "pdf_base64": pdf_base64,
+            "pdf_size": len(pdf_bytes)
+        }
+        
+    except Exception as e:
+        buffer.close()
+        return {"status": "error", "message": f"Error generando PDF: {str(e)}"}
+
+
+def generate_appointment_pdf(tool_context: ToolContext, confirmation_number: str) -> dict:
+    """
+    Genera el PDF con diseño profesional y lo guarda en disco.
+    Versión mejorada que crea un archivo descargable.
+    """
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.colors import black, darkblue, darkgreen
+    except ImportError:
+        return {"status": "error", "message": "reportlab no está instalado"}
+
+    # 1. RECUPERAR DATOS DEL USUARIO Y CITA
+    user_info = tool_context.state.get("user_info", {})
+    user_name = user_info.get("full_name", "Usuario Genérico")
+    user_curp = user_info.get("curp", "SIN DATO")
+    user_address = user_info.get("address", "Sin dirección")
+
+    # Buscar la cita específica
     clean_confirmation = confirmation_number.strip()
     appointments = tool_context.state.get("appointments", [])
     appointment = next((a for a in appointments if a.get("confirmation_number") == clean_confirmation), None)
@@ -482,34 +677,108 @@ def generate_appointment_pdf(tool_context: ToolContext, confirmation_number: str
     
     try:
         c = canvas.Canvas(filename, pagesize=letter)
+        width, height = letter
         
-        # Título
-        c.setFont("Helvetica-Bold", 18)
-        c.drawString(50, 750, f"CITA SAT: {clean_confirmation}")
+        # === HEADER CON LOGO Y TÍTULO ===
+        c.setFillColor(darkblue)
+        c.rect(0, height-80, width, 80, fill=1)
         
-        # DATOS DEL USUARIO (Sacados del state global)
+        c.setFillColor('white')
+        c.setFont("Helvetica-Bold", 24)
+        c.drawString(50, height-35, "🏛️ SAT - COMPROBANTE DE CITA")
+        
         c.setFont("Helvetica", 12)
-        c.drawString(50, 720, f"Nombre del Contribuyente: {user_name}")
-        c.drawString(50, 700, f"CURP: {user_curp}")
+        c.drawString(50, height-55, "Servicio de Administración Tributaria")
         
-        # DATOS DE LA CITA
-        c.drawString(50, 670, f"Trámite: {appointment.get('service_type', 'General')}")
-        c.drawString(50, 650, f"Fecha: {appointment.get('date')} - Hora: {appointment.get('time')}")
-        c.drawString(50, 630, f"Oficina: {appointment.get('office_name', appointment.get('office', {}).get('name', 'SAT'))}")
+        # === NÚMERO DE CONFIRMACIÓN DESTACADO ===
+        c.setFillColor(darkgreen)
+        c.rect(50, height-150, width-100, 40, fill=1)
+        
+        c.setFillColor('white')
+        c.setFont("Helvetica-Bold", 16)
+        c.drawCentredText(width/2, height-135, f"CONFIRMACIÓN: {clean_confirmation}")
+        
+        # === INFORMACIÓN DEL CONTRIBUYENTE ===
+        c.setFillColor(black)
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, height-190, "DATOS DEL CONTRIBUYENTE:")
+        
+        c.setFont("Helvetica", 12)
+        y_position = height-210
+        contribuyente_data = [
+            f"👤 Nombre: {user_name}",
+            f"🆔 CURP: {user_curp}",
+            f"🏠 Dirección: {user_address}"
+        ]
+        
+        for line in contribuyente_data:
+            c.drawString(70, y_position, line)
+            y_position -= 20
+        
+        # === DETALLES DE LA CITA ===
+        y_position -= 20
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, y_position, "DETALLES DE LA CITA:")
+        y_position -= 20
+        
+        c.setFont("Helvetica", 12)
+        cita_data = [
+            f"📋 Trámite: {appointment.get('service_type', 'General')}",
+            f"📅 Fecha: {appointment.get('date', 'N/A')}",
+            f"⏰ Hora: {appointment.get('time', 'N/A')}",
+            f"📍 Oficina: {appointment.get('office', {}).get('name', 'SAT')}"
+        ]
+        
+        for line in cita_data:
+            c.drawString(70, y_position, line)
+            y_position -= 20
+        
+        # === RECORDATORIOS IMPORTANTES ===
+        y_position -= 30
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, y_position, "⚠️ RECORDATORIOS IMPORTANTES:")
+        y_position -= 20
+        
+        c.setFont("Helvetica", 11)
+        recordatorios = [
+            "• Presente este comprobante el día de su cita",
+            "• Llegue 10 minutos antes del horario programado", 
+            "• Traiga identificación oficial vigente (INE/Pasaporte)",
+            "• Para reagendar, contacte la oficina con 24 horas de anticipación",
+            "• En caso de no asistir, su cita será cancelada automáticamente"
+        ]
+        
+        for recordatorio in recordatorios:
+            c.drawString(70, y_position, recordatorio)
+            y_position -= 18
+        
+        # === CÓDIGO QR SIMULADO ===
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, 100, "📱 CÓDIGO QR PARA CHECK-IN RÁPIDO:")
+        c.rect(50, 50, 80, 80, fill=0)
+        c.drawCentredText(90, 85, "QR CODE")
+        c.drawCentredText(90, 75, f"ID: {clean_confirmation[-4:]}")
+        
+        # === PIE DE PÁGINA ===
+        c.setFont("Helvetica", 9)
+        c.drawCentredText(width/2, 30, f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        c.drawCentredText(width/2, 15, "© 2024 SAT - Este documento es válido únicamente para la cita programada")
         
         c.save()
 
-        # Ruta absoluta para que la encuentres
+        # Ruta absoluta para descarga
         abs_path = os.path.abspath(filename)
         
         return {
             "status": "success", 
-            "message": "PDF Generado con datos del State.", 
+            "message": "PDF profesional generado exitosamente", 
             "file_path": abs_path,
+            "filename": filename,
             "note": f"Archivo guardado en: {abs_path}"
         }
+        
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": f"Error generando PDF: {str(e)}"}   
     
 
 # Crear el agente de agendamiento de citas

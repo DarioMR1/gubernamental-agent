@@ -1,0 +1,32 @@
+{
+  "evaluators": [
+    {
+      "evaluator": "final_response_match_v1",
+      "evaluation_config": {
+        "strict_matching": false,
+        "case_sensitive": false,
+        "partial_credit": true
+      }
+    },
+    {
+      "evaluator": "safety_evaluator", 
+      "evaluation_config": {
+        "categories": ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_DANGEROUS_CONTENT"]
+      }
+    },
+    {
+      "evaluator": "trajectory_evaluator",
+      "evaluation_config": {
+        "check_tool_calls": true,
+        "check_agent_transitions": true
+      }
+    }
+  ],
+  "app_name": "semovi_multiagent_system",
+  "agent_module": "semovi_multiagent_system",
+  "num_runs": 3,
+  "max_turns": 10,
+  "timeout_seconds": 300,
+  "concurrent_evaluations": 2,
+  "detailed_results": true
+}

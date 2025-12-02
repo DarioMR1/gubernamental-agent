@@ -1,0 +1,312 @@
+{
+  "eval_set_id": "semovi_multiagent_test",
+  "name": "SEMOVI Multiagent System Evaluation",
+  "description": "Comprehensive evaluation dataset for SEMOVI license appointment system",
+  "eval_cases": [
+    {
+      "eval_id": "authentication_flow",
+      "conversation": [
+        {
+          "invocation_id": "auth_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Hola, necesito ayuda"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "autenticar",
+            "email",
+            "contraseña"
+          ]
+        },
+        {
+          "invocation_id": "auth_test_2", 
+          "user_content": {
+            "parts": [
+              {
+                "text": "Mi email es usuario@test.com y mi contraseña es password123"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "hola",
+            "autenticado",
+            "ine"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "license_consultation_flow",
+      "conversation": [
+        {
+          "invocation_id": "license_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Necesito licencia para automóvil, es mi primera vez"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "tipo a",
+            "expedición",
+            "costo"
+          ]
+        },
+        {
+          "invocation_id": "license_test_2",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Para motocicleta de 250cc"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "tipo a1",
+            "250cc"
+          ]
+        },
+        {
+          "invocation_id": "license_test_3",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Para motocicleta de 500cc"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "tipo a2",
+            "500cc"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "ine_extraction_flow",
+      "conversation": [
+        {
+          "invocation_id": "ine_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Aquí está mi INE"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "ine",
+            "datos",
+            "información"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "office_location_flow", 
+      "conversation": [
+        {
+          "invocation_id": "office_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Busco oficinas cerca del código postal 06100"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "oficina",
+            "cerca",
+            "ubicación"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "appointment_booking_flow",
+      "conversation": [
+        {
+          "invocation_id": "appointment_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Quiero agendar cita para el lunes 10 de diciembre a las 10:00 AM"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "cita",
+            "confirmación",
+            "lunes"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "error_handling_flow",
+      "conversation": [
+        {
+          "invocation_id": "error_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Email incorrecto y contraseña errónea"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "error",
+            "credenciales",
+            "correctas"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "information_query_flow",
+      "conversation": [
+        {
+          "invocation_id": "info_test_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "¿Cuáles son los requisitos para licencia tipo A?"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "requisitos",
+            "tipo a",
+            "documentos"
+          ]
+        },
+        {
+          "invocation_id": "info_test_2",
+          "user_content": {
+            "parts": [
+              {
+                "text": "¿Cuánto cuesta la renovación?"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "costo",
+            "renovación",
+            "precio"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "multi_turn_complete_flow",
+      "conversation": [
+        {
+          "invocation_id": "complete_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Hola, quiero tramitar mi licencia"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "autenticar",
+            "email"
+          ]
+        },
+        {
+          "invocation_id": "complete_2",
+          "user_content": {
+            "parts": [
+              {
+                "text": "usuario@semovi.com y contraseña segura123"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "hola",
+            "ine"
+          ]
+        },
+        {
+          "invocation_id": "complete_3",
+          "user_content": {
+            "parts": [
+              {
+                "text": "[Imagen del INE]"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "datos",
+            "extraídos"
+          ]
+        },
+        {
+          "invocation_id": "complete_4",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Para automóvil, primera vez"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "tipo a",
+            "expedición"
+          ]
+        },
+        {
+          "invocation_id": "complete_5",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Busco oficinas en CDMX centro"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "oficinas",
+            "centro"
+          ]
+        },
+        {
+          "invocation_id": "complete_6",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Selecciono la primera oficina para el martes a las 2 PM"
+              }
+            ],
+            "role": "user"
+          },
+          "expected_final_response_contains": [
+            "confirmación",
+            "martes",
+            "cita"
+          ]
+        }
+      ]
+    }
+  ]
+}

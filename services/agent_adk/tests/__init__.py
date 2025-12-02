@@ -1,0 +1,1 @@
+# Copyright 2024 SEMOVI Multiagent System Tests
