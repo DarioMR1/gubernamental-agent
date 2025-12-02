@@ -1,20 +1,29 @@
+import os
+import random
+import sqlite3
+import smtplib
 from datetime import datetime, timedelta
+from typing import List, Dict, Optional # <--- IMPORTANTE: Optional es necesario
+
+# --- IMPORTS DE CORREO Y PDF ---
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+except ImportError:
+    pass 
+
 from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
-import random
-from typing import List, Dict
-import sqlite3
-import os
 from dotenv import load_dotenv
-
 # Cargar variables de entorno
 load_dotenv()
 
 def init_db():
-    """Inicializa la base de datos SQLite para las citas."""
     conn = sqlite3.connect('citas_sat.db')
     cursor = conn.cursor()
-    # Creamos una tabla si no existe
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +34,7 @@ def init_db():
             time TEXT,
             service_type TEXT,
             user_curp TEXT,
+            user_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -340,478 +350,167 @@ def get_appointment_requirements(tool_context: ToolContext, service_type: str) -
     }
 
 
-def send_appointment_confirmation_email(tool_context: ToolContext, email: str, confirmation_number: str) -> dict:
+def send_appointment_confirmation_email(
+    tool_context: ToolContext, 
+    to_email: str, 
+    attachment_path: Optional[str] = None
+) -> dict:
     """
-    Envía un correo de confirmación de cita usando Resend API.
-    
-    Args:
-        tool_context: Contexto de la herramienta
-        email: Dirección de correo electrónico del usuario
-        confirmation_number: Número de confirmación de la cita
+    Envía un correo con los detalles de la cita (Fecha, Hora, Nombre) obtenidos del estado
+    y adjunta el PDF si se proporciona.
     """
-    try:
-        import resend
-    except ImportError:
-        return {
-            "status": "error",
-            "message": "La librería resend no está instalada. Instala con: pip install resend"
-        }
-    
-    # Buscar la cita por número de confirmación
+    # 1. RECUPERAR DATOS DEL ESTADO (Memoria)
+    # Buscamos el nombre
+    user_info = tool_context.state.get("user_info", {})
+    user_name = user_info.get("full_name", "Contribuyente")
+
+    # Buscamos la última cita agendada para sacar fecha y hora
     appointments = tool_context.state.get("appointments", [])
-    appointment = None
-    for apt in appointments:
-        if apt.get("confirmation_number") == confirmation_number:
-            appointment = apt
-            break
+    if appointments:
+        # Tomamos la última de la lista
+        last_appt = appointments[-1]
+        appt_date = last_appt.get("date", "Fecha pendiente")
+        appt_time = last_appt.get("time", "--:--")
+        appt_office = last_appt.get("office", {}).get("name", "Oficina SAT")
+        service = last_appt.get("service_type", "Trámite")
+    else:
+        # Valores por defecto si no hay cita en memoria
+        appt_date = "N/A"
+        appt_time = "N/A"
+        appt_office = "Oficina SAT"
+        service = "General"
+
+    # 2. CONFIGURACIÓN (Simulada o Real)
+    sender_email = "tu_correo_simulado@gmail.com" 
+    sender_password = "tu_contraseña"
     
-    if not appointment:
-        return {
-            "status": "error",
-            "message": f"No se encontró la cita con número de confirmación: {confirmation_number}"
-        }
-    
-    # Configurar API key de Resend
-    resend_api_key = os.getenv("RESEND_API_KEY")
-    if not resend_api_key:
-        return {
-            "status": "error",
-            "message": "RESEND_API_KEY no está configurada en las variables de entorno"
-        }
-    
-    resend.api_key = resend_api_key
-    
-    # Obtener información del usuario y la cita
-    user_name = appointment["user_info"]["full_name"]
-    service_type = appointment["service_type"]
-    date = appointment["date"]
-    time = appointment["time"]
-    office_name = appointment["office"]["name"]
-    office_address = appointment["office"]["address"]
-    office_phone = appointment["office"]["phone"]
-    
-    # Formatear fecha en español
+    # MODO SIMULACIÓN (Si no tienes credenciales reales)
+    if "simulado" in sender_email:
+        print(f"\n📧 [SIMULACIÓN DE CORREO]")
+        print(f"   De: SAT Virtual")
+        print(f"   Para: {to_email}")
+        print(f"   Asunto: Confirmación de Cita - {user_name}")
+        print(f"   Mensaje:")
+        print(f"     Hola {user_name},")
+        print(f"     Tu cita está confirmada para el {appt_date} a las {appt_time}.")
+        if attachment_path:
+            print(f"   📎 Adjunto incluido: {attachment_path}")
+        print("-" * 30)
+        return {"status": "success", "message": f"Correo simulado enviado a {to_email} con los datos de la cita."}
+
     try:
-        date_obj = datetime.strptime(date, "%Y-%m-%d")
-        formatted_date = date_obj.strftime("%d de %B de %Y")
-        day_name = date_obj.strftime("%A")
+        # 3. CONSTRUIR EL CORREO REAL
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Subject'] = f"Confirmación de Cita SAT - {appt_date}"
+
+        # --- AQUÍ ESTÁ EL CAMBIO DEL BODY ---
+        body = f"""
+        Estimado/a Contribuyente,
         
-        # Traducir al español
-        day_names = {
-            "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles",
-            "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo"
-        }
-        month_names = {
-            "January": "enero", "February": "febrero", "March": "marzo", "April": "abril",
-            "May": "mayo", "June": "junio", "July": "julio", "August": "agosto",
-            "September": "septiembre", "October": "octubre", "November": "noviembre", "December": "diciembre"
-        }
+        Le confirmamos que su cita ha sido agendada exitosamente.
         
-        for eng, esp in day_names.items():
-            day_name = day_name.replace(eng, esp)
-        for eng, esp in month_names.items():
-            formatted_date = formatted_date.replace(eng, esp)
-            
-    except:
-        formatted_date = date
-        day_name = "N/A"
-    
-    # Crear contenido HTML del correo
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Confirmación de Cita - SAT</title>
-        <style>
-            body {{
-                font-family: 'Segoe UI', Arial, sans-serif;
-                line-height: 1.6;
-                color: #333;
-                margin: 0;
-                padding: 0;
-                background-color: #f5f7fa;
-            }}
-            .container {{
-                max-width: 600px;
-                margin: 0 auto;
-                background-color: #ffffff;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            }}
-            .header {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 30px 20px;
-                text-align: center;
-            }}
-            .header h1 {{
-                margin: 0;
-                font-size: 28px;
-                font-weight: 600;
-            }}
-            .header p {{
-                margin: 10px 0 0 0;
-                font-size: 16px;
-                opacity: 0.9;
-            }}
-            .content {{
-                padding: 30px 20px;
-            }}
-            .greeting {{
-                font-size: 18px;
-                margin-bottom: 20px;
-                color: #2d3748;
-            }}
-            .confirmation-box {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                margin: 25px 0;
-            }}
-            .confirmation-number {{
-                font-size: 24px;
-                font-weight: 700;
-                margin: 10px 0;
-                letter-spacing: 2px;
-                background: rgba(255,255,255,0.2);
-                padding: 10px 15px;
-                border-radius: 5px;
-                display: inline-block;
-            }}
-            .info-section {{
-                background-color: #f8fafc;
-                border-left: 4px solid #667eea;
-                padding: 20px;
-                margin: 20px 0;
-                border-radius: 0 8px 8px 0;
-            }}
-            .info-section h3 {{
-                color: #2d3748;
-                margin-top: 0;
-                font-size: 18px;
-                border-bottom: 2px solid #e2e8f0;
-                padding-bottom: 10px;
-            }}
-            .detail-item {{
-                margin: 12px 0;
-                display: flex;
-                align-items: flex-start;
-            }}
-            .detail-label {{
-                font-weight: 600;
-                color: #4a5568;
-                min-width: 120px;
-                margin-right: 10px;
-            }}
-            .detail-value {{
-                color: #2d3748;
-                flex: 1;
-            }}
-            .requirements {{
-                background-color: #fff8e1;
-                border-left: 4px solid #ff9800;
-                padding: 20px;
-                margin: 20px 0;
-                border-radius: 0 8px 8px 0;
-            }}
-            .requirements h3 {{
-                color: #e65100;
-                margin-top: 0;
-                font-size: 18px;
-            }}
-            .requirements ul {{
-                margin: 10px 0;
-                padding-left: 20px;
-            }}
-            .requirements li {{
-                margin: 8px 0;
-                color: #bf360c;
-            }}
-            .important-notes {{
-                background-color: #e8f5e8;
-                border: 1px solid #4caf50;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 20px 0;
-            }}
-            .important-notes h3 {{
-                color: #2e7d32;
-                margin-top: 0;
-                font-size: 18px;
-            }}
-            .important-notes ul {{
-                margin: 10px 0;
-                padding-left: 20px;
-            }}
-            .important-notes li {{
-                margin: 8px 0;
-                color: #388e3c;
-            }}
-            .footer {{
-                background-color: #2d3748;
-                color: #a0aec0;
-                text-align: center;
-                padding: 30px 20px;
-                font-size: 14px;
-            }}
-            .footer p {{
-                margin: 5px 0;
-            }}
-            .highlight {{
-                background-color: #667eea;
-                color: white;
-                padding: 2px 6px;
-                border-radius: 4px;
-                font-weight: 600;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>🏛️ SAT - Confirmación de Cita</h1>
-                <p>Servicio de Administración Tributaria</p>
-            </div>
-            
-            <div class="content">
-                <div class="greeting">
-                    Estimado(a) <strong>{user_name}</strong>,
-                </div>
-                
-                <p>Su cita para el trámite de <strong>{service_type}</strong> ha sido agendada exitosamente en el SAT.</p>
-                
-                <div class="confirmation-box">
-                    <h3 style="margin: 0; font-size: 18px;">Número de Confirmación</h3>
-                    <div class="confirmation-number">{confirmation_number}</div>
-                    <p style="margin: 10px 0 0 0; opacity: 0.9;">Guarde este número para futuras referencias</p>
-                </div>
-                
-                <div class="info-section">
-                    <h3>📅 Detalles de su Cita</h3>
-                    <div class="detail-item">
-                        <div class="detail-label">Servicio:</div>
-                        <div class="detail-value"><span class="highlight">{service_type}</span></div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Fecha:</div>
-                        <div class="detail-value">{day_name}, {formatted_date}</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Hora:</div>
-                        <div class="detail-value">{time} hrs</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Oficina:</div>
-                        <div class="detail-value">{office_name}</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Dirección:</div>
-                        <div class="detail-value">{office_address}</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Teléfono:</div>
-                        <div class="detail-value">{office_phone}</div>
-                    </div>
-                </div>
-                
-                <div class="requirements">
-                    <h3>📄 Documentos Requeridos</h3>
-                    <p><strong>Para el trámite de {service_type}, debe presentar:</strong></p>
-                    <ul>
-                        <li>Identificación oficial vigente (INE/Pasaporte)</li>
-                        <li>CURP actualizada</li>
-                        <li>Comprobante de domicilio (no mayor a 3 meses)</li>
-                        <li>Documentación específica según el trámite solicitado</li>
-                    </ul>
-                </div>
-                
-                <div class="important-notes">
-                    <h3>⚠️ Información Importante</h3>
-                    <ul>
-                        <li><strong>Llegue 15 minutos antes</strong> de su cita programada</li>
-                        <li>Traiga <strong>todos los documentos originales</strong> y copias</li>
-                        <li>Su número de confirmación es: <strong>{confirmation_number}</strong></li>
-                        <li>Las citas no utilizadas <strong>NO se reprograman automáticamente</strong></li>
-                        <li>Para cancelar o reprogramar, contacte la oficina con anticipación</li>
-                    </ul>
-                </div>
-                
-                <p style="margin-top: 30px; color: #4a5568;">
-                    Si tiene alguna pregunta, puede comunicarse directamente a la oficina del SAT al teléfono <strong>{office_phone}</strong>.
-                </p>
-            </div>
-            
-            <div class="footer">
-                <p><strong>Gobierno Digital - Sistema de Citas SAT</strong></p>
-                <p>Este correo fue generado automáticamente. Por favor no responda a este mensaje.</p>
-                <p>Para soporte técnico, visite: <strong>sat.gob.mx</strong></p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    
-    # Configurar parámetros del correo
-    from_email = os.getenv("RESEND_FROM_EMAIL", "Trámites Gubernamentales <notifications@diperion.com>")
-    subject = f"Confirmación de Cita SAT - {service_type} ({confirmation_number})"
-    
-    params = {
-        "from": from_email,
-        "to": [email],
-        "subject": subject,
-        "html": html_content,
-    }
-    
-    try:
-        # Enviar el correo
-        result = resend.Emails.send(params)
+        Detalles del servicio:
+        -----------------------------------
+        Contribuyente: {user_name}
+        📅 Fecha:   {appt_date}
+        ⏰ Hora:    {appt_time}
+        📍 Lugar:   {appt_office}
+        📋 Trámite: {service}
+        -----------------------------------
         
-        # Actualizar el historial de interacciones
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        current_history = tool_context.state.get("interaction_history", [])
-        new_history = current_history.copy()
-        new_history.append({
-            "action": "email_sent",
-            "email": email,
-            "confirmation_number": confirmation_number,
-            "service_type": service_type,
-            "email_id": result.get("id"),
-            "timestamp": current_time
-        })
-        tool_context.state["interaction_history"] = new_history
+        Adjunto encontrará su comprobante oficial en PDF.
+        Por favor preséntese 10 minutos antes con su identificación oficial.
         
-        return {
-            "status": "success",
-            "message": f"Confirmación de cita enviada exitosamente a {email}",
-            "email_id": result.get("id"),
-            "confirmation_number": confirmation_number
-        }
-        
+        Atentamente,
+        Servicio de Administración Tributaria
+        """
+        msg.attach(MIMEText(body, 'plain'))
+
+        # 4. ADJUNTAR PDF
+        if attachment_path:
+            if os.path.exists(attachment_path):
+                with open(attachment_path, "rb") as f:
+                    part = MIMEApplication(f.read(), Name=os.path.basename(attachment_path))
+                part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+                msg.attach(part)
+            else:
+                return {"status": "error", "message": f"No encontré el archivo adjunto: {attachment_path}"}
+
+        # 5. ENVIAR
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+
+        return {"status": "success", "message": f"Correo enviado a {to_email} con fecha y hora."}
+
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error al enviar el correo: {str(e)}"
-        }
-    
+        return {"status": "error", "message": f"Error enviando correo: {str(e)}"}    
 
 def generate_appointment_pdf(tool_context: ToolContext, confirmation_number: str) -> dict:
     """
-    Genera un PDF robusto. Si faltan datos, usa valores por defecto en lugar de fallar.
+    Genera el PDF tomando los datos del usuario directamente del STATE global,
+    sin importar dónde se guardó la cita.
     """
-    print(f"--- 📄 INTENTANDO GENERAR PDF PARA: {confirmation_number} ---")
-
     try:
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import letter
-        from reportlab.lib import colors
     except ImportError:
-        return {"status": "error", "message": "Falta librería 'reportlab'. Ejecuta: pip install reportlab"}
+        return {"status": "error", "message": "Falta reportlab."}
 
-    # 1. BUSCAR LA CITA EN EL ESTADO
-    # A veces el número viene con espacios extra, los limpiamos
+    # 1. RECUPERAR DATOS DEL USUARIO DIRECTAMENTE DEL STATE
+    # No buscamos dentro de la cita, vamos a la memoria global de la sesión.
+    state_user_info = tool_context.state.get("user_info", {})
+    
+    # Extraemos con valores por defecto por si algo falta
+    user_name = state_user_info.get("full_name", "Usuario Genérico")
+    user_curp = state_user_info.get("curp", "SIN DATO")
+
+    # 2. RECUPERAR DETALLES DE LA CITA
+    # Buscamos la cita solo para obtener fecha, hora y oficina
     clean_confirmation = confirmation_number.strip()
-    
     appointments = tool_context.state.get("appointments", [])
-    appointment = None
-    
-    # Búsqueda manual para ver qué tenemos
-    print(f"    🔍 Buscando en {len(appointments)} citas registradas en memoria...")
-    for apt in appointments:
-        # Imprimimos para depurar
-        print(f"       - Comparando con: {apt.get('confirmation_number')}")
-        if apt.get("confirmation_number") == clean_confirmation:
-            appointment = apt
-            break
+    appointment = next((a for a in appointments if a.get("confirmation_number") == clean_confirmation), None)
     
     if not appointment:
-        print("    ❌ Error: No se encontró el folio en la memoria de la sesión.")
-        return {"status": "error", "message": f"No encontré la cita {clean_confirmation} en mis registros momentáneos."}
-
-    # 2. OBTENER DATOS DE FORMA SEGURA (USANDO .get PARA EVITAR ERRORES)
-    # Si user_info está vacío, usamos diccionarios vacíos por defecto
-    user = appointment.get("user_info", {}) or {}
-    office = appointment.get("office", {}) or {}
-    
-    # Datos con valores por defecto (Esto evita que el código truene si falta algo)
-    full_name = user.get("full_name", "Usuario no registrado")
-    curp = user.get("curp", "N/A")
-    email = user.get("email", "N/A")
-    
-    service_type = appointment.get("service_type", "Trámite General")
-    date_str = appointment.get("date", "Fecha pendiente")
-    time_str = appointment.get("time", "--:--")
-    
-    office_name = office.get("name", "Oficina SAT")
-    office_address = office.get("address", "Dirección no disponible")
+        return {"status": "error", "message": "Cita no encontrada en memoria temporal."}
 
     filename = f"Cita_SAT_{clean_confirmation}.pdf"
     
     try:
-        # 3. DIBUJAR EL PDF
         c = canvas.Canvas(filename, pagesize=letter)
-        width, height = letter
-
-        # Encabezado
-        c.setFillColor(colors.darkblue)
-        c.setFont("Helvetica-Bold", 20)
-        c.drawString(50, height - 50, "Comprobante de Cita SAT")
         
-        c.setFillColor(colors.black)
-        c.setFont("Helvetica", 10)
-        c.drawString(50, height - 70, "Sistema de Citas Automatizado")
-        c.drawString(50, height - 85, f"Emisión: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-        c.line(50, height - 95, width - 50, height - 95)
-
-        # Cuerpo
-        y = height - 130
+        # Título
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(50, 750, f"CITA SAT: {clean_confirmation}")
         
-        # Sección Cita
-        c.setFont("Helvetica-Bold", 14); c.drawString(50, y, "Detalles de la Cita")
-        y -= 25
+        # DATOS DEL USUARIO (Sacados del state global)
         c.setFont("Helvetica", 12)
-        c.drawString(50, y, f"Folio: {clean_confirmation}")
-        y -= 20
-        c.drawString(50, y, f"Trámite: {service_type}")
-        y -= 20
-        c.drawString(50, y, f"Cuándo: {date_str} a las {time_str}")
-        y -= 40
-
-        # Sección Usuario
-        c.setFont("Helvetica-Bold", 14); c.drawString(50, y, "Solicitante")
-        y -= 25
-        c.setFont("Helvetica", 12)
-        c.drawString(50, y, f"Nombre: {full_name}")
-        y -= 20
-        c.drawString(50, y, f"CURP: {curp}")
-        y -= 40
-
-        # Sección Ubicación
-        c.setFont("Helvetica-Bold", 14); c.drawString(50, y, "Lugar")
-        y -= 25
-        c.setFont("Helvetica", 12)
-        c.drawString(50, y, f"Sede: {office_name}")
-        y -= 20
-        c.setFont("Helvetica", 10)
-        c.drawString(50, y, f"Dir: {office_address}")
-
+        c.drawString(50, 720, f"Nombre del Contribuyente: {user_name}")
+        c.drawString(50, 700, f"CURP: {user_curp}")
+        
+        # DATOS DE LA CITA
+        c.drawString(50, 670, f"Trámite: {appointment.get('service_type', 'General')}")
+        c.drawString(50, 650, f"Fecha: {appointment.get('date')} - Hora: {appointment.get('time')}")
+        c.drawString(50, 630, f"Oficina: {appointment.get('office_name', appointment.get('office', {}).get('name', 'SAT'))}")
+        
         c.save()
-        print(f"    ✅ PDF creado exitosamente: {filename}")
 
+        # Ruta absoluta para que la encuentres
         abs_path = os.path.abspath(filename)
-
+        
         return {
-            "status": "success",
-            "message": "PDF Generado.",
-            "file_name": filename,
-            "download_link": f"[{filename}](file:///{abs_path})", 
-            "note": "Usa la herramienta 'send_email_with_pdf' para enviarlo."
+            "status": "success", 
+            "message": "PDF Generado con datos del State.", 
+            "file_path": abs_path,
+            "note": f"Archivo guardado en: {abs_path}"
         }
     except Exception as e:
-        print(f"    🔥 Error dibujando PDF: {e}")
-        return {"status": "error", "message": f"Error interno al dibujar PDF: {str(e)}"}
+        return {"status": "error", "message": str(e)}
+    
 
 # Crear el agente de agendamiento de citas
 appointment_scheduling_agent = Agent(

@@ -127,6 +127,12 @@ root_agent = Agent(
     → Dirigir INMEDIATAMENTE a Agente de Extracción
     ```
 
+    **Escenario 4: Pregunta general o información**
+    ```
+    Usuario: "¿Cuáles son los requisitos para renovar mi licencia?"
+    → Dirigir a Agente de Investigación Web
+    ```
+
     ## INSTRUCCIONES ESPECÍFICAS
 
     ### ✅ **Verificación de Datos (CRÍTICO)**
