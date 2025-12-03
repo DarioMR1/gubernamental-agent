@@ -25,25 +25,66 @@ async def initialize_semovi_session(callback_context: CallbackContext) -> Option
             "address": "",
             "postal_code": "",
             "birth_date": "",
-            "extraction_timestamp": ""
+            "phone": "",
+            "email": "",
+            "extraction_timestamp": "",
+            "extraction_method": ""
         },
         "service_determination": {
-            "vehicle_type": "",  # auto | motorcycle
-            "cylinder_capacity": None,  # for motorcycles
-            "license_type": "",  # LICENSE_A | LICENSE_A1 | LICENSE_A2
+            "status": "",
+            "license_type": "",  # LIC_A | LIC_A1 | LIC_A2
             "procedure_type": "",  # EXPEDITION | RENEWAL | REPLACEMENT
-            "total_cost": 0.0,
-            "requirements": []
+            "vehicle_info": {
+                "type": "",  # auto | motorcycle
+                "cylinder_capacity": None
+            },
+            "costs": {
+                "base_cost": 0.0,
+                "additional_cost": 0.0, 
+                "total_cost": 0.0,
+                "currency": "MXN"
+            },
+            "requirements": {
+                "total_requirements": 0,
+                "required_documents": [],
+                "base_requirements": [],
+                "license_specific": [],
+                "procedure_specific": []
+            },
+            "age_validation": {},
+            "processing_time_days": 1,
+            "validity_years": 3
         },
         "office_search": {
             "search_postal_code": "",
             "found_offices": [],
-            "selected_office": {}
+            "total_found": 0,
+            "search_timestamp": ""
         },
         "appointment": {
+            "office_id": None,
+            "office_name": "",
             "available_slots": [],
-            "selected_slot": {},
-            "confirmation": {}
+            "slots_by_date": {},
+            "search_range_days": 14,
+            "last_availability_check": "",
+            "selected_slot": {
+                "slot_id": None,
+                "date": "",
+                "time": ""
+            },
+            "confirmation": {
+                "appointment_id": None,
+                "confirmation_code": "",
+                "status": "",
+                "office": {},
+                "date": "",
+                "time": "",
+                "license_type": "",
+                "procedure_type": "",
+                "total_cost": 0.0,
+                "created_at": ""
+            }
         },
         "process_stage": "welcome",  # welcome -> authentication_required -> authenticated -> ine_extraction -> service_consultation -> office_search -> appointment_booking -> confirmed
         "session_metadata": {
@@ -58,6 +99,16 @@ async def initialize_semovi_session(callback_context: CallbackContext) -> Option
             "corpus_status": "ready",
             "last_corpus_update": "2024-12-01T00:00:00Z"
         },
+        "validation_results": {},
+        "missing_info_request": {},
+        "cost_calculation": {},
+        "age_validation": {},
+        "email_confirmation": {},
+        "pdf_confirmation": {},
+        "last_generated_code": {},
+        "last_error": {},
+        "last_auth_error": {},
+        "last_logout": {},
         "authentication_status": {
             "is_authenticated": False,
             "jwt_token": None,
@@ -65,6 +116,11 @@ async def initialize_semovi_session(callback_context: CallbackContext) -> Option
             "authenticated_at": None,
             "user_profile": {}
         },
+        # Additional state variables used by tools
+        "jwt_token": None,
+        "auth_user_id": None, 
+        "authenticated_at": None,
+        "user_profile": {},
         # Flatten key variables for template access
         "license_type": "",
         "procedure_type": "",
@@ -78,6 +134,39 @@ async def initialize_semovi_session(callback_context: CallbackContext) -> Option
     for field, default_value in required_fields.items():
         if field not in callback_context.state:
             callback_context.state[field] = default_value
+    
+    # 🔥 AUTO-AUTHENTICATE WITH JWT TOKEN FROM FRONTEND
+    # Check if JWT token was sent from frontend in state_delta
+    jwt_token = callback_context.state.get("jwt_token")
+    
+    if jwt_token and not callback_context.state.get("authentication_status", {}).get("is_authenticated"):
+        print(f"[CALLBACK] 🔐 JWT token detected, attempting auto-authentication...")
+        try:
+            # Import here to avoid circular imports
+            from ..tools.authentication_tools import authenticate_with_jwt_token
+            
+            # Create a mock tool context to use authentication functions
+            class MockToolContext:
+                def __init__(self, state):
+                    self.state = state
+            
+            mock_context = MockToolContext(callback_context.state)
+            auth_result = authenticate_with_jwt_token(jwt_token, mock_context)
+            
+            if auth_result["status"] == "success":
+                print(f"[CALLBACK] ✅ Auto-authentication successful: {auth_result.get('message', '')}")
+                # State has already been updated by authenticate_with_jwt_token
+            else:
+                print(f"[CALLBACK] ❌ Auto-authentication failed: {auth_result.get('message', '')}")
+                # Clear invalid token
+                if "jwt_token" in callback_context.state:
+                    del callback_context.state["jwt_token"]
+                    
+        except Exception as e:
+            print(f"[CALLBACK] ❌ Error during auto-authentication: {str(e)}")
+            # Clear problematic token
+            if "jwt_token" in callback_context.state:
+                del callback_context.state["jwt_token"]
     
     # Update session metadata
     callback_context.state["session_metadata"]["last_activity"] = datetime.now().isoformat()
@@ -139,7 +228,7 @@ def get_session_summary(callback_context: CallbackContext) -> dict:
         "current_stage": state.get("process_stage", "unknown"),
         "user_identified": bool(state.get("user_data", {}).get("curp", "")),
         "service_determined": bool(state.get("service_determination", {}).get("license_type", "")),
-        "office_selected": bool(state.get("office_search", {}).get("selected_office", {})),
+        "offices_found": len(state.get("office_search", {}).get("found_offices", [])),
         "appointment_confirmed": bool(state.get("appointment", {}).get("confirmation", {})),
         "interaction_count": state.get("session_metadata", {}).get("interaction_count", 0),
         "total_queries": len(state.get("information_queries", {}).get("queries_made", [])),

@@ -4,6 +4,8 @@
 
 import os
 import requests
+import jwt
+import json
 from datetime import datetime
 
 from google.adk.tools.tool_context import ToolContext
@@ -310,6 +312,138 @@ def logout_user(tool_context: ToolContext):
         return {
             "status": "error",
             "message": f"Error cerrando sesión: {str(e)}"
+        }
+
+
+def authenticate_with_jwt_token(jwt_token: str, tool_context: ToolContext):
+    """
+    Authenticate user using JWT token from frontend.
+    
+    Args:
+        jwt_token: JWT token from frontend authentication
+        tool_context: Tool context for state access
+        
+    Returns:
+        Dict with authentication results
+    """
+    try:
+        if not jwt_token or not jwt_token.strip():
+            return {
+                "status": "error",
+                "message": "Token JWT no proporcionado"
+            }
+
+        # Decode JWT without verification first to get user info
+        # (Supabase tokens are already validated by the frontend)
+        try:
+            decoded_token = jwt.decode(jwt_token, options={"verify_signature": False})
+        except jwt.InvalidTokenError as e:
+            return {
+                "status": "error", 
+                "message": f"Token JWT inválido: {str(e)}"
+            }
+
+        # Extract user information from token
+        user_id = decoded_token.get("sub")
+        user_email = decoded_token.get("email")
+        user_metadata = decoded_token.get("user_metadata", {})
+        
+        if not user_id or not user_email:
+            return {
+                "status": "error",
+                "message": "Token JWT no contiene información de usuario válida"
+            }
+
+        # Store JWT and user info in session state
+        tool_context.state["jwt_token"] = jwt_token
+        tool_context.state["auth_user_id"] = user_id
+        tool_context.state["authenticated_at"] = datetime.now().isoformat()
+        
+        # Extract user profile from JWT metadata
+        first_name = user_metadata.get("first_name", "")
+        last_name = user_metadata.get("last_name", "")
+        
+        user_profile = {
+            "id": user_id,
+            "email": user_email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "phone": "",
+            "profile_type": "citizen",
+            "is_active": True
+        }
+        
+        # Store user profile in session
+        tool_context.state["user_profile"] = user_profile
+        tool_context.state["process_stage"] = "authenticated"
+        
+        # Update authentication status
+        tool_context.state["authentication_status"] = {
+            "is_authenticated": True,
+            "jwt_token": jwt_token,
+            "auth_user_id": user_id,
+            "authenticated_at": tool_context.state["authenticated_at"],
+            "user_profile": user_profile
+        }
+
+        full_name = f"{first_name} {last_name}".strip()
+        display_name = full_name if full_name else user_email.split("@")[0]
+        
+        return {
+            "status": "success",
+            "message": f"¡Bienvenido/a {display_name}!",
+            "user_profile": user_profile,
+            "access_token": jwt_token,
+            "authentication_timestamp": tool_context.state["authenticated_at"],
+            "authentication_method": "jwt_frontend"
+        }
+        
+    except Exception as e:
+        tool_context.state["last_auth_error"] = {
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "method": "jwt_authentication"
+        }
+        
+        return {
+            "status": "error",
+            "message": f"Error autenticando con JWT: {str(e)}"
+        }
+
+
+def auto_authenticate_from_state(tool_context: ToolContext):
+    """
+    Check for JWT token in state and authenticate automatically if present.
+    
+    Args:
+        tool_context: Tool context for state access
+        
+    Returns:
+        Dict with authentication results or None if no JWT found
+    """
+    try:
+        # Check if JWT token exists in state (from frontend)
+        jwt_token = tool_context.state.get("jwt_token")
+        
+        if not jwt_token:
+            return None
+            
+        # Check if already authenticated to avoid re-processing
+        auth_status = tool_context.state.get("authentication_status", {})
+        if auth_status.get("is_authenticated") and auth_status.get("jwt_token") == jwt_token:
+            return {
+                "status": "already_authenticated",
+                "message": "Usuario ya autenticado con JWT",
+                "user_profile": auth_status.get("user_profile", {})
+            }
+        
+        # Authenticate with the JWT token
+        return authenticate_with_jwt_token(jwt_token, tool_context)
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error en auto-autenticación: {str(e)}"
         }
 
 

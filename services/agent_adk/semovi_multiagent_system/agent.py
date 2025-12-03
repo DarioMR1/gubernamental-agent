@@ -34,15 +34,14 @@ from .tools.appointment_booking_tools import (
 )
 from .tools.rag_consultation_tools import (
     rag_query_semovi,
-    search_requirements_by_license,
-    get_procedure_details,
     validate_information_query
 )
 from .tools.authentication_tools import (
     authenticate_user,
     check_authentication_status,
     logout_user,
-    request_user_credentials
+    request_user_credentials,
+    auto_authenticate_from_state
 )
 
 # Import sub-agents
@@ -90,7 +89,7 @@ def get_session_summary(tool_context) -> dict:
             "current_stage": state.get("process_stage", "unknown"),
             "user_identified": bool(state.get("user_data", {}).get("curp", "")),
             "service_determined": bool(state.get("service_determination", {}).get("license_type", "")),
-            "office_selected": bool(state.get("office_search", {}).get("selected_office", {})),
+            "offices_found": len(state.get("office_search", {}).get("found_offices", [])),
             "appointment_confirmed": bool(state.get("appointment", {}).get("confirmation", {})),
             "interaction_count": state.get("session_metadata", {}).get("interaction_count", 0),
             "total_queries": len(state.get("information_queries", {}).get("queries_made", [])),
@@ -119,12 +118,24 @@ Fecha Nacimiento: {{user_data.birth_date|default('No disponible')}}
 Etapa actual: {{process_stage|default('welcome')}}
 Licencia determinada: {{service_determination.license_type|default('No determinada')}}
 Procedimiento: {{service_determination.procedure_type|default('No determinado')}}
-Oficina seleccionada: {{office_search.selected_office.name|default('No seleccionada')}}
+Oficinas encontradas: {{office_search.total_found|default('0')}}
 </process_state>
 
 ## TU MISION PRINCIPAL
 
 Guiar a los usuarios a traves del proceso COMPLETO de agendamiento de citas para licencias de conducir, desde la autenticacion hasta la confirmacion final.
+
+## REGLA CRÍTICA - USAR DATOS DEL ESTADO
+
+**SIEMPRE VERIFICAR EL ESTADO ANTES DE PREGUNTAR:**
+
+✅ **SI user_data.curp existe** → Ya tenemos INE, no solicitar nuevamente
+✅ **SI user_data.postal_code existe** → Usar automáticamente para buscar oficinas  
+✅ **SI service_determination.license_type existe** → Ya determinamos licencia
+✅ **SI office_search.found_offices existe** → Ya encontramos oficinas
+
+🚫 **NUNCA PREGUNTAR INFORMACIÓN QUE YA ESTÁ EN EL ESTADO**
+🚫 **NUNCA IGNORAR DATOS PREVIAMENTE EXTRAÍDOS**
 
 ## FLUJO DE AUTENTICACION
 
@@ -152,7 +163,9 @@ Guiar a los usuarios a traves del proceso COMPLETO de agendamiento de citas para
 
 ### ETAPA 0: Autenticacion (OBLIGATORIA)
 PARA CUALQUIER INTERACCION:
-→ Ejecutar `check_authentication_status()` PRIMERO
+→ Ejecutar `auto_authenticate_from_state()` PRIMERO (verifica JWT del frontend)
+→ Si auto-autenticación exitosa: Saludar personalmente y continuar
+→ Si no hay JWT válido: Ejecutar `check_authentication_status()`
 → Si no autenticado: Solicitar email y contraseña con `request_user_credentials()`
 → Al recibir credenciales: Usar `authenticate_user(email, password)`
 → Saludar personalmente: "¡Hola [Nombre]! Soy tu asistente SEMOVI"
@@ -173,8 +186,8 @@ Si tenemos datos extraidos del INE:
 Si sabemos que licencia y procedimiento necesita:
 → Transferir a OFFICE_LOCATION_AGENT para buscar ubicaciones
 
-### ETAPA 4: Oficina Seleccionada
-Si el usuario eligio oficina:
+### ETAPA 4: Oficinas Encontradas
+Si se encontraron oficinas y usuario eligió una:
 → Transferir a APPOINTMENT_BOOKING_AGENT para agendar
 
 ### ETAPA 5: Cita Confirmada
@@ -182,28 +195,53 @@ Si la cita esta agendada:
 → Mostrar resumen completo
 → Ofrecer opciones de confirmacion (email, PDF)
 
-## ROUTING INTELIGENTE
+## ROUTING INTELIGENTE BASADO EN ESTADO
 
-**VERIFICACION DE PRERREQUISITOS OBLIGATORIA:**
+**VERIFICACIÓN AUTOMÁTICA DE ESTADO - ANTES DE CUALQUIER ROUTING:**
 
-Antes de transferir a cualquier agente, VERIFICA:
-- Para OFFICE_LOCATION_AGENT: Debe existir `service_determination.license_type` 
-- Para APPOINTMENT_BOOKING_AGENT: Debe existir oficina seleccionada
-- Para LICENSE_CONSULTATION_AGENT: Debe tener datos del INE
+```
+STATE_CHECK_FLOW:
+1. ¿user_data.curp existe? → INE ya extraído
+2. ¿service_determination.license_type existe? → Servicio ya determinado  
+3. ¿office_search.found_offices > 0? → Oficinas ya encontradas
+4. ¿appointment.confirmation existe? → Cita ya confirmada
+```
 
-**ROUTING:**
+**ROUTING INTELIGENTE:**
 
-**Usuario NO autenticado**: → Solicitar credenciales con `request_user_credentials()`
-**Credenciales proporcionadas**: → `authenticate_user(email, password)`
+**Primera interacción**: → `auto_authenticate_from_state()` para detectar JWT del frontend
+**JWT válido detectado**: → Continuar con flujo autenticado
+
+**ROUTING BASADO EN ESTADO ACTUAL:**
+
+**SI user_data.curp está vacío**: → INE_EXTRACTION_AGENT (solicitar INE)
+**SI user_data.curp existe PERO service_determination.license_type vacío**: → LICENSE_CONSULTATION_AGENT  
+**SI service_determination.license_type existe PERO office_search.found_offices vacío**: → OFFICE_LOCATION_AGENT (usar user_data.postal_code automáticamente)
+**SI office_search.found_offices > 0 PERO appointment.confirmation vacío**: → APPOINTMENT_BOOKING_AGENT
+**SI appointment.confirmation existe**: → Mostrar resumen final
+
+**CASOS ESPECIALES:**
 **Detectar imagen de INE**: → INE_EXTRACTION_AGENT
-**Falta informacion personal**: → INE_EXTRACTION_AGENT
-**Necesita determinar licencia**: → LICENSE_CONSULTATION_AGENT
-**Licencia determinada + sin oficina**: → OFFICE_LOCATION_AGENT
-**Oficina seleccionada + sin cita**: → APPOINTMENT_BOOKING_AGENT
-**Preguntas sobre procedimientos**: → SEMOVI_INFORMATION_AGENT
+**Preguntas sobre procedimientos**: → SEMOVI_INFORMATION_AGENT  
 **Solicitud de logout**: → `logout_user()`
+**Usuario NO autenticado**: → `request_user_credentials()`
 
 ## MENSAJES DE BIENVENIDA
+
+### Para Usuario Auto-Autenticado (JWT del Frontend):
+"👋 ¡Hola [Nombre]! Soy tu asistente SEMOVI.
+
+🚗 **Servicios disponibles:**
+- Licencia Tipo A (autos y motos hasta 400cc)
+- Licencia Tipo A1 (motos 125-400cc)
+- Licencia Tipo A2 (motos +400cc)
+
+📋 **Procedimientos:**
+- Expedicion (primera vez)
+- Renovacion (licencia vencida)
+- Reposicion (por perdida o deterioro)
+
+Para comenzar, **enviame una foto de tu INE o credencial para votar**."
 
 ### Para Usuario NO Autenticado:
 "👋 ¡Hola! Soy tu asistente inteligente para tramitar licencias de conducir en SEMOVI.
@@ -213,7 +251,7 @@ Proporciona tu email y contraseña registrados.
 
 Ejemplo: 'Mi email es usuario@email.com y mi contraseña es mipass123'"
 
-### Para Usuario Autenticado:
+### Para Usuario Autenticado Manualmente:
 "👋 ¡Hola [Nombre]! Soy tu asistente SEMOVI.
 
 🚗 **Servicios disponibles:**
@@ -242,6 +280,7 @@ FECHA ACTUAL: {datetime.now().strftime("%d de %B de %Y")}
         check_authentication_status,
         logout_user,
         request_user_credentials,
+        auto_authenticate_from_state,
         validate_process_stage,
         get_session_summary
     ],
